@@ -1,11 +1,16 @@
+use std::io::IsTerminal;
+
 use mdq::{filter_documents, scan_dir, select_columns};
-use prettytable::{Cell, Row};
 
 mod args;
 
+// TODO : Add debug logging
+// TODO : Add documentation comments
+// TODO : Add tests
+
 fn main() {
+    env_logger::init();
     let args = args::get_args();
-    //println!("{args:?}");
 
     let root_dir = args.get_one::<String>("dir").unwrap();
 
@@ -17,11 +22,24 @@ fn main() {
         None
     };
 
-    let columns: Vec<_> = if let Some(columns) = args.get_many::<String>("column") {
-        columns.collect()
-    } else {
-        vec![]
-    };
+    let columns: Vec<_> = args
+        .get_many::<String>("column")
+        .unwrap()
+        .cloned()
+        .collect();
+    log::info!("selected columns: {columns:?}");
+
+    let columns: Vec<(_, _)> = columns
+        .into_iter()
+        .map(|x| {
+            let (column, header_rename) = x.split_once(':').unwrap_or((&x, &x));
+
+            (column.to_owned(), header_rename.to_owned())
+        })
+        .collect();
+
+    let (columns, headers): (Vec<_>, Vec<_>) = columns.into_iter().unzip();
+
     let filters: Vec<_> = if let Some(filters) = args.get_many::<String>("filter") {
         filters.collect()
     } else {
@@ -48,30 +66,34 @@ fn main() {
     };
 
     if output_json {
-        let data = serde_json::json!(
+        let mut data = serde_json::json!(
             {
                 "columns": columns,
                 "results": data
             }
         );
+        if columns != headers {
+            data.as_object_mut()
+                .unwrap()
+                .insert("headers".into(), headers.into());
+        }
         println!("{}", serde_json::to_string(&data).unwrap());
         return;
     }
 
-    let mut table = prettytable::Table::new();
-
-    let headers = columns
-        .iter()
-        .map(|cell| Cell::new(cell))
-        .collect::<Vec<Cell>>();
-    table.set_titles(Row::new(headers));
-
-    // Add rows to the table
-    for row in data {
-        let cells: Vec<Cell> = row.iter().map(|cell| Cell::new(cell)).collect();
-        table.add_row(Row::new(cells));
+    if data.is_empty() {
+        return;
     }
 
-    // Print the table to the console
-    table.printstd();
+    let mut table = comfy_table::Table::new();
+
+    table.set_header(headers);
+    table.load_preset(comfy_table::presets::UTF8_FULL_CONDENSED);
+    if !std::io::stdout().is_terminal() {
+        // TODO : Output as CSV?
+        table.load_preset(comfy_table::presets::NOTHING);
+    }
+    table.add_rows(data);
+
+    println!("{table}");
 }

@@ -10,7 +10,7 @@ pub fn get_args() -> ArgMatches {
         .arg(
             arg!(-c --column <COLUMN>... "Specify output columns")
                 .required(false)
-                .default_value("path"),
+                .default_value("file.title:Title"),
         )
         .get_matches()
 }
