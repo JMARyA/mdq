@@ -1,3 +1,5 @@
+use txd::DataType;
+
 /// get frontmatter from markdown document
 #[must_use]
 pub fn get_frontmatter(markdown: &str) -> Option<String> {
@@ -10,6 +12,23 @@ pub fn get_frontmatter(markdown: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+fn system_time_to_date_time(t: std::time::SystemTime) -> chrono::DateTime<chrono::Utc> {
+    let (sec, nsec) = match t.duration_since(std::time::UNIX_EPOCH) {
+        Ok(dur) => (dur.as_secs() as i64, dur.subsec_nanos()),
+        Err(e) => {
+            // unlikely but should be handled
+            let dur = e.duration();
+            let (sec, nsec) = (dur.as_secs() as i64, dur.subsec_nanos());
+            if nsec == 0 {
+                (-sec, 0)
+            } else {
+                (-sec - 1, 1_000_000_000 - nsec)
+            }
+        }
+    };
+    chrono::TimeZone::timestamp_opt(&chrono::Utc, sec, nsec).unwrap()
 }
 
 #[derive(Debug)]
@@ -60,23 +79,81 @@ pub fn scan_dir(dir: &str) -> Index {
 /// Get a key from document.
 /// This will return internal properties first, then it will search the document frontmatter for the key and return it. If nothing was found an empty string is returned.
 fn get_key(d: &Document, key: &str) -> String {
-    if key == "file.title" {
-        let path = std::path::Path::new(&d.path);
-        return path.file_stem().unwrap().to_str().unwrap().to_string();
+    match key {
+        "file.title" => {
+            let path = std::path::Path::new(&d.path);
+            return path.file_stem().unwrap().to_str().unwrap().to_string();
+        }
+        "file.name" => {
+            let path = std::path::Path::new(&d.path);
+            return path.file_name().unwrap().to_str().unwrap().to_string();
+        }
+        "file.parent" => {
+            let path = std::path::Path::new(&d.path);
+            return path
+                .parent()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
+        }
+        "file.folder" => {
+            let path = std::path::Path::new(&d.path);
+            return path.parent().unwrap().to_str().unwrap().to_string();
+        }
+        "file.ext" => {
+            let path = std::path::Path::new(&d.path);
+            return path.extension().unwrap().to_str().unwrap().to_string();
+        }
+        "file.size" => {
+            let path = std::path::Path::new(&d.path);
+            return path.metadata().unwrap().len().to_string();
+        }
+        "file.ctime" => {
+            let path = std::path::Path::new(&d.path);
+            return system_time_to_date_time(path.metadata().unwrap().created().unwrap())
+                .to_rfc3339();
+        }
+        "file.cday" => {
+            let path = std::path::Path::new(&d.path);
+            return system_time_to_date_time(path.metadata().unwrap().created().unwrap())
+                .format("%Y-%m-%d")
+                .to_string();
+        }
+        "file.mtime" => {
+            let path = std::path::Path::new(&d.path);
+            return system_time_to_date_time(path.metadata().unwrap().modified().unwrap())
+                .to_rfc3339();
+        }
+        "file.mday" => {
+            let path = std::path::Path::new(&d.path);
+            return system_time_to_date_time(path.metadata().unwrap().modified().unwrap())
+                .format("%Y-%m-%d")
+                .to_string();
+        }
+        "file.path" => {
+            return d.path.clone();
+        }
+        _ => {}
     }
     if let Some(val) = d.frontmatter.as_mapping().unwrap().get(key) {
-        // TODO : Fix format
-        match val {
-            serde_yaml::Value::Null => String::new(),
-            serde_yaml::Value::Bool(b) => b.to_string(),
-            serde_yaml::Value::Number(n) => n.to_string(),
-            serde_yaml::Value::String(s) => s.to_owned(),
-            serde_yaml::Value::Sequence(_v) => todo!(),
-            serde_yaml::Value::Mapping(_o) => todo!(),
-            serde_yaml::Value::Tagged(_) => unimplemented!(),
-        }
+        stringify(val)
     } else {
         String::new()
+    }
+}
+
+fn stringify(val: &serde_yaml::Value) -> String {
+    match val {
+        serde_yaml::Value::Null => String::new(),
+        serde_yaml::Value::Bool(b) => b.to_string(),
+        serde_yaml::Value::Number(n) => n.to_string(),
+        serde_yaml::Value::String(s) => s.to_owned(),
+        serde_yaml::Value::Sequence(_) => serde_json::to_string(&val).unwrap(),
+        serde_yaml::Value::Mapping(_o) => todo!(),
+        serde_yaml::Value::Tagged(_) => unimplemented!(),
     }
 }
 
@@ -121,13 +198,13 @@ pub fn filter_documents(i: Index, filters: &[txd::filter::Filter]) -> Index {
                     break;
                 }
 
-                if !a.same_as(&b) {
+                if !a.same_as(&b) && !matches!(a, DataType::List(_)) {
                     log::debug!("trying to cast a to string because of different types");
                     a = txd::DataType::String(a_str);
                 }
 
                 if !a.compare(f.1, b) {
-                    is_included = false
+                    is_included = false;
                 }
             }
             if is_included {

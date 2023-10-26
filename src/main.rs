@@ -7,6 +7,7 @@ mod args;
 // TODO : Add debug logging
 // TODO : Add documentation comments
 // TODO : Add tests
+// TODO : Add GROUP BY Function
 
 fn main() {
     env_logger::init();
