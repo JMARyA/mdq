@@ -5,7 +5,18 @@ pub fn get_args() -> ArgMatches {
         .about("Query markdown files")
         .arg(arg!([dir] "Directory to scan").required(true))
         .arg(arg!(-j --json "Output result as JSON").required(false))
-        .arg(arg!(-l --limit <LIMIT> "Limit number of results returned").required(false))
+        .arg(
+            arg!(-l --limit <LIMIT> "Limit number of results returned")
+                .required(false)
+                .default_value("0")
+                .allow_negative_numbers(false),
+        )
+        .arg(
+            arg!(--offset <OFFSET> "Offset results by a factor. Useful when used with --limit")
+                .required(false)
+                .allow_negative_numbers(false)
+                .default_value("0"),
+        )
         .arg(arg!(-f --filter <FILTER>... "Filter to apply to the documents").required(false))
         .arg(
             arg!(-c --column <COLUMN>... "Specify output columns")

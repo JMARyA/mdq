@@ -1,6 +1,6 @@
 use std::io::IsTerminal;
 
-use mdq::{filter_documents, scan_dir, select_columns};
+use mdq::Index;
 
 mod args;
 
@@ -17,11 +17,9 @@ fn main() {
 
     let output_json = args.get_flag("json");
 
-    let limit: Option<usize> = if let Some(limit_arg) = args.get_one::<String>("limit") {
-        limit_arg.parse().ok()
-    } else {
-        None
-    };
+    let limit: usize = args.get_one::<String>("limit").unwrap().parse().unwrap();
+
+    let offset: usize = args.get_one::<String>("offset").unwrap().parse().unwrap();
 
     let columns: Vec<_> = args
         .get_many::<String>("column")
@@ -30,41 +28,30 @@ fn main() {
         .collect();
     log::info!("selected columns: {columns:?}");
 
-    let columns: Vec<(_, _)> = columns
+    let (columns, headers): (Vec<_>, Vec<_>) = columns
         .into_iter()
         .map(|x| {
             let (column, header_rename) = x.split_once(':').unwrap_or((&x, &x));
 
             (column.to_owned(), header_rename.to_owned())
         })
-        .collect();
+        .unzip();
 
-    let (columns, headers): (Vec<_>, Vec<_>) = columns.into_iter().unzip();
-
-    let filters: Vec<_> = if let Some(filters) = args.get_many::<String>("filter") {
-        filters.collect()
-    } else {
-        vec![]
-    };
+    let filters = args
+        .get_many::<String>("filter")
+        .map_or_else(std::vec::Vec::new, std::iter::Iterator::collect);
 
     let filters: Vec<_> = filters
         .into_iter()
         .map(|x| txd::filter::parse_condition(x).expect("failed to parse filter"))
         .collect();
 
-    let mut i = scan_dir(root_dir);
+    let mut i = Index::new(root_dir);
     if !filters.is_empty() {
-        i = filter_documents(i, &filters);
+        i = i.filter_documents(&filters);
     }
 
-    let data = if let Some(limit) = limit {
-        select_columns(&i, &columns.clone())
-            .into_iter()
-            .take(limit)
-            .collect::<Vec<_>>()
-    } else {
-        select_columns(&i, &columns.clone())
-    };
+    let data = i.select_columns(&columns, limit, offset);
 
     if output_json {
         let mut data = serde_json::json!(
@@ -86,14 +73,23 @@ fn main() {
         return;
     }
 
+    if !std::io::stdout().is_terminal() {
+        let mut writer = csv::WriterBuilder::new().from_writer(vec![]);
+        writer.write_record(headers).unwrap();
+        for e in data {
+            writer.write_record(e).unwrap();
+        }
+        print!(
+            "{}",
+            String::from_utf8(writer.into_inner().unwrap()).unwrap()
+        );
+        return;
+    }
+
     let mut table = comfy_table::Table::new();
 
     table.set_header(headers);
     table.load_preset(comfy_table::presets::UTF8_FULL_CONDENSED);
-    if !std::io::stdout().is_terminal() {
-        // TODO : Output as CSV?
-        table.load_preset(comfy_table::presets::NOTHING);
-    }
     table.add_rows(data);
 
     println!("{table}");
