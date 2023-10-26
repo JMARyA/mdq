@@ -21,6 +21,10 @@ fn main() {
 
     let offset: usize = args.get_one::<String>("offset").unwrap().parse().unwrap();
 
+    let sort_by = args.get_one::<String>("sortby").map(|x| x.to_owned());
+
+    let reversed = args.get_flag("reverse");
+
     let columns: Vec<_> = args
         .get_many::<String>("column")
         .unwrap()
@@ -51,7 +55,7 @@ fn main() {
         i = i.filter_documents(&filters);
     }
 
-    let data = i.select_columns(&columns, limit, offset);
+    let data = i.select_columns(&columns, limit, offset, sort_by, reversed);
 
     if output_json {
         let mut data = serde_json::json!(

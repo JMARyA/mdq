@@ -79,10 +79,32 @@ impl Index {
 
     /// Build a table with specified columns from index within specified scope
     #[must_use]
-    pub fn select_columns(&self, col: &[String], limit: usize, offset: usize) -> Table {
+    pub fn select_columns(
+        &self,
+        col: &[String],
+        limit: usize,
+        offset: usize,
+        sort: Option<String>,
+        reverse: bool,
+    ) -> Table {
         let mut rows = vec![];
 
-        let scope: Vec<_> = self.documents.clone().into_iter().skip(offset).collect();
+        let mut scope = self.documents.clone();
+
+        if let Some(sort) = sort {
+            scope.sort_by(|a, b| {
+                let a = txd::parse(&a.get_key(&sort));
+                let b = txd::parse(&b.get_key(&sort));
+
+                a.order_with(&b)
+            });
+        }
+
+        if reverse {
+            scope.reverse();
+        }
+
+        let scope: Vec<_> = scope.into_iter().skip(offset).collect();
 
         let scope = if limit == 0 {
             scope
@@ -129,7 +151,7 @@ impl Index {
                         a = txd::DataType::String(a_str);
                     }
 
-                    if !a.compare(f.1, b) {
+                    if !a.compare(f.1, &b) {
                         is_included = false;
                     }
                 }

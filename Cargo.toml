@@ -3,6 +3,12 @@ name = "mdq"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+
 [dependencies]
 clap = { version = "4.4.7", features = ["cargo"] }
 regex = "1.10.2"
