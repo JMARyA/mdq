@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use txd::DataType;
 
 /// get frontmatter from markdown document
@@ -79,16 +81,7 @@ impl Index {
 
     /// Build a table with specified columns from index within specified scope
     #[must_use]
-    pub fn select_columns(
-        &self,
-        col: &[String],
-        limit: usize,
-        offset: usize,
-        sort: Option<String>,
-        reverse: bool,
-    ) -> Table {
-        let mut rows = vec![];
-
+    pub fn apply(&self, limit: usize, offset: usize, sort: Option<String>, reverse: bool) -> Self {
         let mut scope = self.documents.clone();
 
         if let Some(sort) = sort {
@@ -112,7 +105,28 @@ impl Index {
             scope.into_iter().take(limit).collect()
         };
 
-        for doc in scope {
+        Self { documents: scope }
+    }
+
+    #[must_use]
+    pub fn group_by(&self, key: &str) -> HashMap<String, Self> {
+        let mut grouped_items: HashMap<String, Vec<Document>> = HashMap::new();
+
+        for doc in self.documents.clone() {
+            grouped_items.entry(doc.get_key(key)).or_default().push(doc);
+        }
+
+        grouped_items
+            .into_iter()
+            .map(|(key, item)| (key, Index { documents: item }))
+            .collect()
+    }
+
+    #[must_use]
+    pub fn create_table_data(&self, col: &[String]) -> Table {
+        let mut rows = vec![];
+
+        for doc in &self.documents {
             let mut rcol = vec![];
             for c in col {
                 rcol.push(doc.get_key(c));
@@ -138,7 +152,11 @@ impl Index {
                     let mut a = txd::parse(&a_str);
                     let b = txd::parse(&f.2);
 
-                    log::debug!("Trying to compare {a:?} and {b:?} with {:?}", f.1);
+                    log::debug!(
+                        "Trying to compare '{}' = {a:?} and {b:?} with {:?}",
+                        f.0,
+                        f.1
+                    );
 
                     if a_str.is_empty() {
                         // TODO : Maybe add explicit null instead of empty string

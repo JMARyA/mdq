@@ -1,10 +1,9 @@
-use std::io::IsTerminal;
+use std::{collections::HashMap, io::IsTerminal};
 
 use mdq::Index;
 
 mod args;
 
-// TODO : Add debug logging
 // TODO : Add documentation comments
 // TODO : Add tests
 // TODO : Add GROUP BY Function
@@ -21,7 +20,13 @@ fn main() {
 
     let offset: usize = args.get_one::<String>("offset").unwrap().parse().unwrap();
 
-    let sort_by = args.get_one::<String>("sortby").map(|x| x.to_owned());
+    let sort_by = args
+        .get_one::<String>("sortby")
+        .map(std::borrow::ToOwned::to_owned);
+
+    let group_by = args
+        .get_one::<String>("groupby")
+        .map(std::borrow::ToOwned::to_owned);
 
     let reversed = args.get_flag("reverse");
 
@@ -30,7 +35,7 @@ fn main() {
         .unwrap()
         .cloned()
         .collect();
-    log::info!("selected columns: {columns:?}");
+    log::debug!("columns: {columns:?}");
 
     let (columns, headers): (Vec<_>, Vec<_>) = columns
         .into_iter()
@@ -41,21 +46,71 @@ fn main() {
         })
         .unzip();
 
+    if columns != headers {
+        log::debug!("renamed headers: {headers:?}");
+    }
+
     let filters = args
         .get_many::<String>("filter")
         .map_or_else(std::vec::Vec::new, std::iter::Iterator::collect);
 
+    log::debug!("raw filters: {filters:?}");
     let filters: Vec<_> = filters
         .into_iter()
         .map(|x| txd::filter::parse_condition(x).expect("failed to parse filter"))
         .collect();
+    log::debug!("parsed filters: {filters:?}");
 
     let mut i = Index::new(root_dir);
     if !filters.is_empty() {
         i = i.filter_documents(&filters);
     }
 
-    let data = i.select_columns(&columns, limit, offset, sort_by, reversed);
+    i = i.apply(limit, offset, sort_by, reversed);
+
+    if group_by.is_some() {
+        let grouped = i.group_by(&group_by.unwrap());
+        let grouped: HashMap<_, _> = grouped
+            .into_iter()
+            .map(|(key, val)| (key, val.create_table_data(&columns)))
+            .collect();
+
+        if output_json {
+            let mut data = serde_json::json!(
+                {
+                    "columns": columns,
+                    "results": grouped
+                }
+            );
+            if columns != headers {
+                data.as_object_mut()
+                    .unwrap()
+                    .insert("headers".into(), headers.into());
+            }
+            println!("{}", serde_json::to_string(&data).unwrap());
+            return;
+        }
+
+        if std::io::stdout().is_terminal() {
+            for (group, val) in grouped {
+                println!("# {group}");
+                print_result(val, &headers);
+            }
+        } else {
+            let mut first = true;
+            for (_, val) in grouped {
+                if first {
+                    print_csv(val, Some(&headers));
+                    first = false;
+                    continue;
+                }
+                print_csv(val, None);
+            }
+        }
+        return;
+    }
+
+    let data = i.create_table_data(&columns);
 
     if output_json {
         let mut data = serde_json::json!(
@@ -72,21 +127,15 @@ fn main() {
         println!("{}", serde_json::to_string(&data).unwrap());
         return;
     }
-
-    if data.is_empty() {
-        return;
+    if std::io::stdout().is_terminal() {
+        print_result(data, &headers);
+    } else {
+        print_csv(data, Some(&headers));
     }
+}
 
-    if !std::io::stdout().is_terminal() {
-        let mut writer = csv::WriterBuilder::new().from_writer(vec![]);
-        writer.write_record(headers).unwrap();
-        for e in data {
-            writer.write_record(e).unwrap();
-        }
-        print!(
-            "{}",
-            String::from_utf8(writer.into_inner().unwrap()).unwrap()
-        );
+fn print_result(data: Vec<Vec<String>>, headers: &[String]) {
+    if data.is_empty() {
         return;
     }
 
@@ -97,4 +146,18 @@ fn main() {
     table.add_rows(data);
 
     println!("{table}");
+}
+
+fn print_csv(data: Vec<Vec<String>>, headers: Option<&[String]>) {
+    let mut writer = csv::WriterBuilder::new().from_writer(vec![]);
+    if let Some(headers) = headers {
+        writer.write_record(headers).unwrap();
+    }
+    for e in data {
+        writer.write_record(e).unwrap();
+    }
+    print!(
+        "{}",
+        String::from_utf8(writer.into_inner().unwrap()).unwrap()
+    );
 }

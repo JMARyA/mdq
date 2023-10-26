@@ -24,6 +24,7 @@ pub fn get_args() -> ArgMatches {
                 .default_value("file.title:Title"),
         )
         .arg(arg!(-s --sortby <KEY> "Sort results based on specified key").required(false))
+        .arg(arg!(-g --groupby <KEY> "Group results based on specified key").required(false))
         .arg(arg!(-r --reverse "Reverse the results").required(false))
         .get_matches()
 }
