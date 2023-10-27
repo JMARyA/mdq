@@ -246,11 +246,36 @@ impl Document {
             }
             _ => {}
         }
-        self.frontmatter
-            .as_mapping()
-            .unwrap()
-            .get(key)
-            .map_or_else(String::new, stringify)
+
+        let split_path: Vec<_> = key.split('.').collect();
+
+        if split_path.len() > 1 {
+            let data = self
+                .frontmatter
+                .as_mapping()
+                .unwrap()
+                .get(split_path.first().unwrap());
+            if data.is_none() {
+                return String::new();
+            }
+            let mut data = data.unwrap();
+
+            for path in &split_path[1..] {
+                let data_opt = data.as_mapping().unwrap().get(path);
+                if data_opt.is_none() {
+                    return String::new();
+                }
+                data = data_opt.unwrap();
+            }
+
+            stringify(data)
+        } else {
+            self.frontmatter
+                .as_mapping()
+                .unwrap()
+                .get(key)
+                .map_or_else(String::new, stringify)
+        }
     }
 }
 
@@ -260,8 +285,9 @@ fn stringify(val: &serde_yaml::Value) -> String {
         serde_yaml::Value::Bool(b) => b.to_string(),
         serde_yaml::Value::Number(n) => n.to_string(),
         serde_yaml::Value::String(s) => s.to_owned(),
-        serde_yaml::Value::Sequence(_) => serde_json::to_string(&val).unwrap(),
-        serde_yaml::Value::Mapping(_o) => todo!(),
+        serde_yaml::Value::Sequence(_) | serde_yaml::Value::Mapping(_) => {
+            serde_json::to_string(&val).unwrap()
+        }
         serde_yaml::Value::Tagged(_) => unimplemented!(),
     }
 }
