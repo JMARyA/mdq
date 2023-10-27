@@ -15,6 +15,8 @@ fn main() {
 
     let output_json = args.get_flag("json");
 
+    let no_header = args.get_flag("noheader");
+
     let limit: usize = args.get_one::<String>("limit").unwrap().parse().unwrap();
 
     let offset: usize = args.get_one::<String>("offset").unwrap().parse().unwrap();
@@ -99,7 +101,7 @@ fn main() {
             let mut first = true;
             for (_, val) in grouped {
                 if first {
-                    print_csv(val, Some(&headers));
+                    print_csv(val, if no_header { None } else { Some(&headers) });
                     first = false;
                     continue;
                 }
@@ -129,7 +131,7 @@ fn main() {
     if std::io::stdout().is_terminal() {
         print_result(data, &headers);
     } else {
-        print_csv(data, Some(&headers));
+        print_csv(data, if no_header { None } else { Some(&headers) });
     }
 }
 
