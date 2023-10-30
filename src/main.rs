@@ -70,7 +70,7 @@ fn main() {
     i = i.apply(limit, offset, sort_by, reversed);
 
     if group_by.is_some() {
-        let grouped = i.group_by(&group_by.unwrap());
+        let grouped = i.group_by(&group_by.clone().unwrap());
         let grouped: HashMap<_, _> = grouped
             .into_iter()
             .map(|(key, val)| (key, val.create_table_data(&columns)))
@@ -80,6 +80,7 @@ fn main() {
             let mut data = serde_json::json!(
                 {
                     "columns": columns,
+                    "groupby": group_by.unwrap(),
                     "results": grouped
                 }
             );
@@ -93,9 +94,24 @@ fn main() {
         }
 
         if std::io::stdout().is_terminal() {
-            for (group, val) in grouped {
+            let mut grouped_keys = grouped.iter().map(|(key, _)| key).collect::<Vec<_>>();
+            grouped_keys.sort_by(|a_str, b_str| {
+                let mut a = txd::parse(a_str);
+                let mut b = txd::parse(b_str);
+
+                log::debug!("Trying to order {a:?} and {b:?}",);
+
+                if !a.same_as(&b) {
+                    log::debug!("trying to cast a to string because of different types");
+                    a = txd::DataType::String(a_str.to_string());
+                    b = txd::DataType::String(b_str.to_string());
+                }
+
+                a.order_with(&b).unwrap()
+            });
+            for group in grouped_keys {
                 println!("# {group}");
-                print_result(val, &headers);
+                print_result(grouped.get(group).unwrap().to_vec(), &headers);
             }
         } else {
             let mut first = true;

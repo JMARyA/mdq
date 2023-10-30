@@ -86,10 +86,20 @@ impl Index {
 
         if let Some(sort) = sort {
             scope.sort_by(|a, b| {
-                let a = txd::parse(&a.get_key(&sort));
-                let b = txd::parse(&b.get_key(&sort));
+                let a_str = a.get_key(&sort);
+                let b_str = b.get_key(&sort);
+                let mut a = txd::parse(&a_str);
+                let mut b = txd::parse(&b_str);
 
-                a.order_with(&b)
+                log::debug!("Trying to order {a:?} and {b:?}",);
+
+                if !a.same_as(&b) {
+                    log::debug!("trying to cast a to string because of different types");
+                    a = txd::DataType::String(a_str);
+                    b = txd::DataType::String(b_str);
+                }
+
+                a.order_with(&b).unwrap()
             });
         }
 
@@ -169,7 +179,7 @@ impl Index {
                         a = txd::DataType::String(a_str);
                     }
 
-                    if !a.compare(f.1, &b) {
+                    if !a.compare(f.1, &b).unwrap() {
                         is_included = false;
                     }
                 }

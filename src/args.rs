@@ -19,7 +19,7 @@ pub fn get_args() -> ArgMatches {
         )
         .arg(arg!(-f --filter <FILTER>... "Filter to apply to the documents").required(false))
         .arg(
-            arg!(-c --column <COLUMN>... "Specify output columns")
+            arg!(-c --column <COLUMN>... "Specify output columns. You can rename the text displayed in the header using the `:` character like this: VariableName:OutputName")
                 .required(false)
                 .default_value("file.title:Title"),
         )

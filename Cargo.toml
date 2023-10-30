@@ -15,7 +15,7 @@ regex = "1.10.2"
 serde = "1.0.189"
 serde_yaml = "0.9.25"
 walkdir = "2.4.0"
-txd = { path = "../txd" }
+txd = { git = "https://git.hydrar.de/jmarya/txd" }
 serde_json = "1.0.107"
 comfy-table = "7.1.0"
 env_logger = "0.10.0"
