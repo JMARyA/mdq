@@ -4,9 +4,6 @@ use mdq::Index;
 
 mod args;
 
-// TODO : Add documentation comments
-// TODO : Add tests
-
 fn main() {
     env_logger::init();
     let args = args::get_args();
@@ -20,6 +17,8 @@ fn main() {
     let limit: usize = args.get_one::<String>("limit").unwrap().parse().unwrap();
 
     let offset: usize = args.get_one::<String>("offset").unwrap().parse().unwrap();
+
+    let ignoretags: bool = args.get_flag("ignoretags");
 
     let sort_by = args
         .get_one::<String>("sortby")
@@ -62,7 +61,7 @@ fn main() {
         .collect();
     log::debug!("parsed filters: {filters:?}");
 
-    let mut i = Index::new(root_dir);
+    let mut i = Index::new(root_dir, ignoretags);
     if !filters.is_empty() {
         i = i.filter_documents(&filters);
     }
@@ -103,15 +102,15 @@ fn main() {
 
                 if !a.same_as(&b) {
                     log::debug!("trying to cast a to string because of different types");
-                    a = txd::DataType::String(a_str.to_string());
-                    b = txd::DataType::String(b_str.to_string());
+                    a = txd::DataType::String((*a_str).to_string());
+                    b = txd::DataType::String((*b_str).to_string());
                 }
 
                 a.order_with(&b).unwrap()
             });
             for group in grouped_keys {
                 println!("# {group}");
-                print_result(grouped.get(group).unwrap().to_vec(), &headers);
+                print_result(grouped.get(group).unwrap().clone(), &headers);
             }
         } else {
             let mut first = true;

@@ -27,5 +27,6 @@ pub fn get_args() -> ArgMatches {
         .arg(arg!(-g --groupby <KEY> "Group results based on specified key").required(false))
         .arg(arg!(-r --reverse "Reverse the results").required(false))
         .arg(arg!(--noheader "Dont print header in CSV mode. Useful for scripting").required(false))
+        .arg(arg!(--ignoretags "Don't add inline #tags to tags frontmatter").required(false))
         .get_matches()
 }

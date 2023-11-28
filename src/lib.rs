@@ -14,6 +14,21 @@ pub fn get_frontmatter(markdown: &str) -> Option<String> {
     })
 }
 
+/// get inline #tags from markdown file
+#[must_use]
+pub fn get_inline_tags(markdown: &str) -> Vec<String> {
+    let tag_regex = regex::Regex::new(r"#(\w+)").unwrap();
+    let mut tags: Vec<String> = vec![];
+
+    for captures in tag_regex.captures_iter(markdown) {
+        if let Some(tag) = captures.get(1) {
+            tags.push(tag.as_str().to_string());
+        }
+    }
+
+    tags
+}
+
 fn system_time_to_date_time(t: std::time::SystemTime) -> chrono::DateTime<chrono::Utc> {
     let (sec, nsec) = match t.duration_since(std::time::UNIX_EPOCH) {
         Ok(dur) => (dur.as_secs() as i64, dur.subsec_nanos()),
@@ -46,7 +61,7 @@ type Table = Vec<Vec<String>>;
 
 impl Index {
     /// Create a markdown document index over `dir`
-    pub fn new(dir: &str) -> Self {
+    pub fn new(dir: &str, ignore_inline_tags: bool) -> Self {
         let mut i = Self { documents: vec![] };
 
         for e in walkdir::WalkDir::new(dir)
@@ -62,17 +77,27 @@ impl Index {
             if e.path().extension().unwrap().to_str().unwrap() == "md" {
                 let path = e.path().to_str().unwrap().to_owned();
                 let content = std::fs::read_to_string(&path).unwrap();
-                let frontmatter = get_frontmatter(&content);
-                if let Some(frontmatter) = frontmatter {
-                    let frontmatter = serde_yaml::from_str(&frontmatter).unwrap();
-                    let doc = Document { path, frontmatter };
-                    i.documents.push(doc);
-                } else {
-                    i.documents.push(Document {
-                        path,
-                        frontmatter: serde_yaml::to_value(&serde_yaml::Mapping::new()).unwrap(),
-                    });
+                let frontmatter = get_frontmatter(&content).unwrap_or_else(|| "{}".to_owned());
+                let mut frontmatter: serde_yaml::Value =
+                    serde_yaml::from_str(&frontmatter).unwrap();
+
+                if !ignore_inline_tags {
+                    let tags = get_inline_tags(&content);
+
+                    frontmatter
+                        .as_mapping_mut()
+                        .unwrap()
+                        .entry("tags".into())
+                        .or_insert(tags.clone().into())
+                        .as_sequence_mut()
+                        .unwrap()
+                        .extend::<Vec<serde_yaml::Value>>(
+                            tags.iter().map(|x| x.clone().into()).collect(),
+                        );
                 }
+
+                let doc = Document { path, frontmatter };
+                i.documents.push(doc);
             }
         }
 
