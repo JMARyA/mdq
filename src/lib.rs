@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use txd::DataType;
 
@@ -82,18 +82,25 @@ impl Index {
                     serde_yaml::from_str(&frontmatter).unwrap();
 
                 if !ignore_inline_tags {
-                    let tags = get_inline_tags(&content);
+                    let mut tags = frontmatter
+                        .as_mapping()
+                        .unwrap()
+                        .get("tags")
+                        .map(|x| x.as_sequence().unwrap().clone())
+                        .unwrap_or_default();
+                    let inline_tags = get_inline_tags(&content);
+
+                    tags.extend(inline_tags.iter().map(|x| x.clone().into()));
+
+                    let mut unique_tags = HashSet::new();
+                    for tag in tags {
+                        unique_tags.insert(tag);
+                    }
 
                     frontmatter
                         .as_mapping_mut()
                         .unwrap()
-                        .entry("tags".into())
-                        .or_insert(tags.clone().into())
-                        .as_sequence_mut()
-                        .unwrap()
-                        .extend::<Vec<serde_yaml::Value>>(
-                            tags.iter().map(|x| x.clone().into()).collect(),
-                        );
+                        .insert("tags".into(), unique_tags.into_iter().collect());
                 }
 
                 let doc = Document { path, frontmatter };
