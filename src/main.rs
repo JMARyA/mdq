@@ -55,14 +55,23 @@ fn main() {
         .map_or_else(std::vec::Vec::new, std::iter::Iterator::collect);
 
     log::debug!("raw filters: {filters:?}");
-    let filters: Vec<_> = filters
-        .into_iter()
-        .map(|x| txd::filter::parse_condition(x).expect("failed to parse filter"))
-        .collect();
+
+    let filters = if filters.len() == 1 {
+        serde_json::from_str(filters.first().unwrap()).unwrap()
+    } else {
+        let filters: Vec<_> = filters
+            .iter()
+            .map(|x| serde_json::from_str::<serde_json::Value>(x).unwrap())
+            .collect();
+        serde_json::json!({
+            "$and": filters
+        })
+    };
+
     log::debug!("parsed filters: {filters:?}");
 
     let mut i = Index::new(root_dir, ignoretags);
-    if !filters.is_empty() {
+    if !filters.is_null() {
         i = i.filter_documents(&filters);
     }
 
@@ -95,18 +104,10 @@ fn main() {
         if std::io::stdout().is_terminal() {
             let mut grouped_keys = grouped.iter().map(|(key, _)| key).collect::<Vec<_>>();
             grouped_keys.sort_by(|a_str, b_str| {
-                let mut a = txd::parse(a_str);
-                let mut b = txd::parse(b_str);
+                let a: serde_json::Value = serde_json::from_str(a_str).unwrap();
+                let b: serde_json::Value = serde_json::from_str(b_str).unwrap();
 
-                log::debug!("Trying to order {a:?} and {b:?}",);
-
-                if !a.same_as(&b) {
-                    log::debug!("trying to cast a to string because of different types");
-                    a = txd::DataType::String((*a_str).to_string());
-                    b = txd::DataType::String((*b_str).to_string());
-                }
-
-                a.order_with(&b).unwrap()
+                jsonfilter::order(&a, &b)
             });
             for group in grouped_keys {
                 println!("# {group}");

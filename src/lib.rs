@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
-
-use txd::DataType;
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+};
 
 /// get frontmatter from markdown document
 #[must_use]
@@ -12,6 +13,28 @@ pub fn get_frontmatter(markdown: &str) -> Option<String> {
 
         frontmatter
     })
+}
+
+trait ToYaml {
+    fn to_yaml(&self) -> serde_yaml::Value;
+}
+
+impl ToYaml for serde_json::Value {
+    fn to_yaml(&self) -> serde_yaml::Value {
+        let str = serde_yaml::to_string(self).unwrap();
+        return serde_yaml::from_str(&str).unwrap();
+    }
+}
+
+trait ToJson {
+    fn to_json(&self) -> serde_json::Value;
+}
+
+impl ToJson for serde_yaml::Value {
+    fn to_json(&self) -> serde_json::Value {
+        let str = serde_json::to_string(self).unwrap();
+        return serde_json::from_str(&str).unwrap();
+    }
 }
 
 /// get inline #tags from markdown file
@@ -118,20 +141,10 @@ impl Index {
 
         if let Some(sort) = sort {
             scope.sort_by(|a, b| {
-                let a_str = a.get_key(&sort);
-                let b_str = b.get_key(&sort);
-                let mut a = txd::parse(&a_str);
-                let mut b = txd::parse(&b_str);
+                let a_str: serde_json::Value = a.get_key(&sort);
+                let b_str: serde_json::Value = b.get_key(&sort);
 
-                log::debug!("Trying to order {a:?} and {b:?}",);
-
-                if !a.same_as(&b) {
-                    log::debug!("trying to cast a to string because of different types");
-                    a = txd::DataType::String(a_str);
-                    b = txd::DataType::String(b_str);
-                }
-
-                a.order_with(&b).unwrap()
+                jsonfilter::order(&a_str, &b_str)
             });
         }
 
@@ -155,7 +168,10 @@ impl Index {
         let mut grouped_items: HashMap<String, Vec<Document>> = HashMap::new();
 
         for doc in self.documents.clone() {
-            grouped_items.entry(doc.get_key(key)).or_default().push(doc);
+            grouped_items
+                .entry(stringify(&doc.get_key(key).to_yaml()))
+                .or_default()
+                .push(doc);
         }
 
         grouped_items
@@ -171,7 +187,7 @@ impl Index {
         for doc in &self.documents {
             let mut rcol = vec![];
             for c in col {
-                rcol.push(doc.get_key(c));
+                rcol.push(stringify(&doc.get_key(c).to_yaml()));
             }
             rows.push(rcol);
         }
@@ -181,42 +197,21 @@ impl Index {
 
     /// Apply filters to the documents of the index returning a new filtered index
     #[must_use]
-    pub fn filter_documents(&self, filters: &[txd::filter::Filter]) -> Self {
-        // TODO : Implement option for chaining filters with AND OR
+    pub fn filter_documents(&self, filters: &serde_json::Value) -> Self {
         let docs: Vec<_> = self
             .documents
             .iter()
             .filter(|x| {
-                let mut is_included = true;
-
-                for f in filters {
-                    let a_str = x.get_key(&f.0);
-                    let mut a = txd::parse(&a_str);
-                    let b = txd::parse(&f.2);
-
-                    log::debug!(
-                        "Trying to compare '{}' = {a:?} and {b:?} with {:?}",
-                        f.0,
-                        f.1
-                    );
-
-                    if a_str.is_empty() {
-                        // TODO : Maybe add explicit null instead of empty string
-                        is_included = false;
-                        break;
-                    }
-
-                    if !a.same_as(&b) && !matches!(a, DataType::List(_)) {
-                        log::debug!("trying to cast a to string because of different types");
-                        a = txd::DataType::String(a_str);
-                    }
-
-                    if !a.compare(f.1, &b).unwrap() {
-                        is_included = false;
-                    }
+                let res = jsonfilter::try_matches(filters, &x.get_full_frontmatter());
+                match res {
+                    Ok(valid) => Ok(valid),
+                    Err(e) => match e {
+                        jsonfilter::FilterError::InvalidFilter => Err(e),
+                        jsonfilter::FilterError::UnknownOperator => Err(e),
+                        jsonfilter::FilterError::KeyNotFound => Ok(false),
+                    },
                 }
-
-                is_included
+                .unwrap()
             })
             .cloned()
             .collect();
@@ -228,63 +223,80 @@ impl Index {
 impl Document {
     /// Get a key from document.
     /// This will return internal properties first, then it will search the document frontmatter for the key and return it. If nothing was found an empty string is returned.
-    fn get_key(&self, key: &str) -> String {
+    fn get_key(&self, key: &str) -> serde_json::Value {
         match key {
             "file.title" => {
                 let path = std::path::Path::new(&self.path);
-                return path.file_stem().unwrap().to_str().unwrap().to_string();
+                return serde_json::Value::String(
+                    path.file_stem().unwrap().to_str().unwrap().to_string(),
+                );
             }
             "file.name" => {
                 let path = std::path::Path::new(&self.path);
-                return path.file_name().unwrap().to_str().unwrap().to_string();
+                return serde_json::Value::String(
+                    path.file_name().unwrap().to_str().unwrap().to_string(),
+                );
             }
             "file.parent" => {
                 let path = std::path::Path::new(&self.path);
-                return path
-                    .parent()
-                    .unwrap()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string();
+                return serde_json::Value::String(
+                    path.parent()
+                        .unwrap()
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                );
             }
             "file.folder" => {
                 let path = std::path::Path::new(&self.path);
-                return path.parent().unwrap().to_str().unwrap().to_string();
+                return serde_json::Value::String(
+                    path.parent().unwrap().to_str().unwrap().to_string(),
+                );
             }
             "file.ext" => {
                 let path = std::path::Path::new(&self.path);
-                return path.extension().unwrap().to_str().unwrap().to_string();
+                return serde_json::Value::String(
+                    path.extension().unwrap().to_str().unwrap().to_string(),
+                );
             }
             "file.size" => {
                 let path = std::path::Path::new(&self.path);
-                return path.metadata().unwrap().len().to_string();
+                return serde_json::Value::String(path.metadata().unwrap().len().to_string());
             }
             "file.ctime" => {
                 let path = std::path::Path::new(&self.path);
-                return system_time_to_date_time(path.metadata().unwrap().created().unwrap())
-                    .to_rfc3339();
+                return serde_json::Value::String(
+                    system_time_to_date_time(path.metadata().unwrap().created().unwrap())
+                        .to_rfc3339(),
+                );
             }
             "file.cday" => {
                 let path = std::path::Path::new(&self.path);
-                return system_time_to_date_time(path.metadata().unwrap().created().unwrap())
-                    .format("%Y-%m-%d")
-                    .to_string();
+                return serde_json::Value::String(
+                    system_time_to_date_time(path.metadata().unwrap().created().unwrap())
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                );
             }
             "file.mtime" => {
                 let path = std::path::Path::new(&self.path);
-                return system_time_to_date_time(path.metadata().unwrap().modified().unwrap())
-                    .to_rfc3339();
+                return serde_json::Value::String(
+                    system_time_to_date_time(path.metadata().unwrap().modified().unwrap())
+                        .to_rfc3339(),
+                );
             }
             "file.mday" => {
                 let path = std::path::Path::new(&self.path);
-                return system_time_to_date_time(path.metadata().unwrap().modified().unwrap())
-                    .format("%Y-%m-%d")
-                    .to_string();
+                return serde_json::Value::String(
+                    system_time_to_date_time(path.metadata().unwrap().modified().unwrap())
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                );
             }
             "file.path" => {
-                return self.path.clone();
+                return serde_json::Value::String(self.path.clone());
             }
             _ => {}
         }
@@ -298,26 +310,43 @@ impl Document {
                 .unwrap()
                 .get(split_path.first().unwrap());
             if data.is_none() {
-                return String::new();
+                return serde_json::Value::Null;
             }
             let mut data = data.unwrap();
 
             for path in &split_path[1..] {
                 let data_opt = data.as_mapping().unwrap().get(path);
                 if data_opt.is_none() {
-                    return String::new();
+                    return serde_json::Value::Null;
                 }
                 data = data_opt.unwrap();
             }
 
-            stringify(data)
+            data.to_json()
         } else {
             self.frontmatter
                 .as_mapping()
                 .unwrap()
                 .get(key)
-                .map_or_else(String::new, stringify)
+                .map_or_else(|| serde_json::Value::Null, |x| x.to_json())
         }
+    }
+
+    pub fn get_full_frontmatter(&self) -> serde_json::Value {
+        let mut frontmatter = self.frontmatter.to_json();
+        let frontmatter_obj = frontmatter.as_object_mut().unwrap();
+        frontmatter_obj.insert("file.title".into(), self.get_key("file.title"));
+        frontmatter_obj.insert("file.name".into(), self.get_key("file.name"));
+        frontmatter_obj.insert("file.parent".into(), self.get_key("file.parent"));
+        frontmatter_obj.insert("file.folder".into(), self.get_key("file.folder"));
+        frontmatter_obj.insert("file.ext".into(), self.get_key("file.ext"));
+        frontmatter_obj.insert("file.size".into(), self.get_key("file.size"));
+        frontmatter_obj.insert("file.ctime".into(), self.get_key("file.ctime"));
+        frontmatter_obj.insert("file.cday".into(), self.get_key("file.cday"));
+        frontmatter_obj.insert("file.mtime".into(), self.get_key("file.mtime"));
+        frontmatter_obj.insert("file.mday".into(), self.get_key("file.mday"));
+        frontmatter_obj.insert("file.path".into(), self.get_key("file.path"));
+        frontmatter
     }
 }
 
