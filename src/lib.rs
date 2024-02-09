@@ -1,7 +1,4 @@
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, HashSet},
-};
+use std::collections::{HashMap, HashSet};
 
 /// get frontmatter from markdown document
 #[must_use]
@@ -22,7 +19,7 @@ trait ToYaml {
 impl ToYaml for serde_json::Value {
     fn to_yaml(&self) -> serde_yaml::Value {
         let str = serde_yaml::to_string(self).unwrap();
-        return serde_yaml::from_str(&str).unwrap();
+        serde_yaml::from_str(&str).unwrap()
     }
 }
 
@@ -33,7 +30,7 @@ trait ToJson {
 impl ToJson for serde_yaml::Value {
     fn to_json(&self) -> serde_json::Value {
         let str = serde_json::to_string(self).unwrap();
-        return serde_json::from_str(&str).unwrap();
+        serde_json::from_str(&str).unwrap()
     }
 }
 
@@ -206,8 +203,8 @@ impl Index {
                 match res {
                     Ok(valid) => Ok(valid),
                     Err(e) => match e {
-                        jsonfilter::FilterError::InvalidFilter => Err(e),
-                        jsonfilter::FilterError::UnknownOperator => Err(e),
+                        jsonfilter::FilterError::InvalidFilter
+                        | jsonfilter::FilterError::UnknownOperator => Err(e),
                         jsonfilter::FilterError::KeyNotFound => Ok(false),
                     },
                 }
@@ -328,10 +325,11 @@ impl Document {
                 .as_mapping()
                 .unwrap()
                 .get(key)
-                .map_or_else(|| serde_json::Value::Null, |x| x.to_json())
+                .map_or_else(|| serde_json::Value::Null, ToJson::to_json)
         }
     }
 
+    #[must_use]
     pub fn get_full_frontmatter(&self) -> serde_json::Value {
         let mut frontmatter = self.frontmatter.to_json();
         let frontmatter_obj = frontmatter.as_object_mut().unwrap();
