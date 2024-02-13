@@ -4,98 +4,41 @@ use mdq::Index;
 
 mod args;
 
+pub fn quit_err(e: impl std::error::Error, msg: &str) -> ! {
+    eprintln!("Error: {msg}. {e}");
+    std::process::exit(1);
+}
+
 fn main() {
     env_logger::init();
     let args = args::get_args();
 
-    let root_dir = args.get_one::<String>("dir").unwrap();
-
-    let output_json = args.get_flag("json");
-
-    let no_header = args.get_flag("noheader");
-
-    let limit: usize = args.get_one::<String>("limit").unwrap().parse().unwrap();
-
-    let offset: usize = args.get_one::<String>("offset").unwrap().parse().unwrap();
-
-    let ignoretags: bool = args.get_flag("ignoretags");
-
-    let sort_by = args
-        .get_one::<String>("sortby")
-        .map(std::borrow::ToOwned::to_owned);
-
-    let group_by = args
-        .get_one::<String>("groupby")
-        .map(std::borrow::ToOwned::to_owned);
-
-    let reversed = args.get_flag("reverse");
-
-    let columns: Vec<_> = args
-        .get_many::<String>("column")
-        .unwrap()
-        .cloned()
-        .collect();
-    log::debug!("columns: {columns:?}");
-
-    let (columns, headers): (Vec<_>, Vec<_>) = columns
-        .into_iter()
-        .map(|x| {
-            let (column, header_rename) = x.split_once(':').unwrap_or((&x, &x));
-
-            (column.to_owned(), header_rename.to_owned())
-        })
-        .unzip();
-
-    if columns != headers {
-        log::debug!("renamed headers: {headers:?}");
+    let mut i = Index::new(&args.root_dir, args.ignoretags);
+    if !args.filters.is_null() {
+        i = i.filter_documents(&args.filters);
     }
 
-    let filters = args
-        .get_many::<String>("filter")
-        .map_or_else(std::vec::Vec::new, std::iter::Iterator::collect);
+    i = i.apply(args.limit, args.offset, args.sort_by, args.reversed);
 
-    log::debug!("raw filters: {filters:?}");
-
-    let filters = if filters.len() == 1 {
-        serde_json::from_str(filters.first().unwrap()).unwrap()
-    } else {
-        let filters: Vec<_> = filters
-            .iter()
-            .map(|x| serde_json::from_str::<serde_json::Value>(x).unwrap())
-            .collect();
-        serde_json::json!({
-            "$and": filters
-        })
-    };
-
-    log::debug!("parsed filters: {filters:?}");
-
-    let mut i = Index::new(root_dir, ignoretags);
-    if !filters.is_null() {
-        i = i.filter_documents(&filters);
-    }
-
-    i = i.apply(limit, offset, sort_by, reversed);
-
-    if group_by.is_some() {
-        let grouped = i.group_by(&group_by.clone().unwrap());
+    if args.group_by.is_some() {
+        let grouped = i.group_by(&args.group_by.clone().unwrap());
         let grouped: HashMap<_, _> = grouped
             .into_iter()
-            .map(|(key, val)| (key, val.create_table_data(&columns)))
+            .map(|(key, val)| (key, val.create_table_data(&args.columns)))
             .collect();
 
-        if output_json {
+        if args.output_json {
             let mut data = serde_json::json!(
                 {
-                    "columns": columns,
-                    "groupby": group_by.unwrap(),
+                    "columns": args.columns,
+                    "groupby": args.group_by.unwrap(),
                     "results": grouped
                 }
             );
-            if columns != headers {
+            if args.columns != args.headers {
                 data.as_object_mut()
                     .unwrap()
-                    .insert("headers".into(), headers.into());
+                    .insert("headers".into(), args.headers.into());
             }
             println!("{}", serde_json::to_string(&data).unwrap());
             return;
@@ -111,13 +54,20 @@ fn main() {
             });
             for group in grouped_keys {
                 println!("# {group}");
-                print_result(grouped.get(group).unwrap().clone(), &headers);
+                print_result(grouped.get(group).unwrap().clone(), &args.headers);
             }
         } else {
             let mut first = true;
             for (_, val) in grouped {
                 if first {
-                    print_csv(val, if no_header { None } else { Some(&headers) });
+                    print_csv(
+                        val,
+                        if args.no_header {
+                            None
+                        } else {
+                            Some(&args.headers)
+                        },
+                    );
                     first = false;
                     continue;
                 }
@@ -127,27 +77,34 @@ fn main() {
         return;
     }
 
-    let data = i.create_table_data(&columns);
+    let data = i.create_table_data(&args.columns);
 
-    if output_json {
+    if args.output_json {
         let mut data = serde_json::json!(
             {
-                "columns": columns,
+                "columns": args.columns,
                 "results": data
             }
         );
-        if columns != headers {
+        if args.columns != args.headers {
             data.as_object_mut()
                 .unwrap()
-                .insert("headers".into(), headers.into());
+                .insert("headers".into(), args.headers.into());
         }
         println!("{}", serde_json::to_string(&data).unwrap());
         return;
     }
     if std::io::stdout().is_terminal() {
-        print_result(data, &headers);
+        print_result(data, &args.headers);
     } else {
-        print_csv(data, if no_header { None } else { Some(&headers) });
+        print_csv(
+            data,
+            if args.no_header {
+                None
+            } else {
+                Some(&args.headers)
+            },
+        );
     }
 }
 

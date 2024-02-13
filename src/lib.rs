@@ -106,7 +106,7 @@ impl Index {
                         .as_mapping()
                         .unwrap()
                         .get("tags")
-                        .map(|x| x.as_sequence().unwrap().clone())
+                        .map(|x| x.as_sequence().unwrap_or(&Vec::new()).clone())
                         .unwrap_or_default();
                     let inline_tags = get_inline_tags(&content);
 
@@ -123,6 +123,7 @@ impl Index {
                         .insert("tags".into(), unique_tags.into_iter().collect());
                 }
 
+                log::trace!("Adding {path} to Index");
                 let doc = Document { path, frontmatter };
                 i.documents.push(doc);
             }
@@ -149,15 +150,17 @@ impl Index {
             scope.reverse();
         }
 
-        let scope: Vec<_> = scope.into_iter().skip(offset).collect();
+        let scope = scope.into_iter().skip(offset);
 
-        let scope = if limit == 0 {
-            scope
+        if limit == 0 {
+            Self {
+                documents: scope.collect(),
+            }
         } else {
-            scope.into_iter().take(limit).collect()
-        };
-
-        Self { documents: scope }
+            Self {
+                documents: scope.take(limit).collect(),
+            }
+        }
     }
 
     #[must_use]

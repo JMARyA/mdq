@@ -1,6 +1,117 @@
 use clap::{arg, command, ArgMatches};
 
-pub fn get_args() -> ArgMatches {
+use crate::quit_err;
+
+pub struct Args {
+    pub root_dir: String,
+    pub output_json: bool,
+    pub no_header: bool,
+    pub limit: usize,
+    pub offset: usize,
+    pub ignoretags: bool,
+    pub sort_by: Option<String>,
+    pub group_by: Option<String>,
+    pub reversed: bool,
+    pub columns: Vec<String>,
+    pub headers: Vec<String>,
+    pub filters: serde_json::Value,
+}
+
+pub fn get_args() -> Args {
+    let args = get_args_match();
+
+    let root_dir = args.get_one::<String>("dir").unwrap();
+
+    let output_json = args.get_flag("json");
+
+    let no_header = args.get_flag("noheader");
+
+    let limit: usize = args
+        .get_one::<String>("limit")
+        .unwrap()
+        .parse()
+        .unwrap_or_else(|e| quit_err(e, "Limit is not a number"));
+
+    let offset: usize = args
+        .get_one::<String>("offset")
+        .unwrap()
+        .parse()
+        .unwrap_or_else(|e| quit_err(e, "Offset is not a number"));
+
+    let ignoretags: bool = args.get_flag("ignoretags");
+
+    let sort_by = args
+        .get_one::<String>("sortby")
+        .map(std::borrow::ToOwned::to_owned);
+
+    let group_by = args
+        .get_one::<String>("groupby")
+        .map(std::borrow::ToOwned::to_owned);
+
+    let reversed = args.get_flag("reverse");
+
+    let columns: Vec<_> = args
+        .get_many::<String>("column")
+        .unwrap()
+        .cloned()
+        .collect();
+    log::debug!("columns: {columns:?}");
+
+    let (columns, headers): (Vec<_>, Vec<_>) = columns
+        .into_iter()
+        .map(|x| {
+            let (column, header_rename) = x.split_once(':').unwrap_or((&x, &x));
+
+            (column.to_owned(), header_rename.to_owned())
+        })
+        .unzip();
+
+    if columns != headers {
+        log::debug!("renamed headers: {headers:?}");
+    }
+
+    let filters = args
+        .get_many::<String>("filter")
+        .map_or_else(std::vec::Vec::new, std::iter::Iterator::collect);
+
+    log::debug!("raw filters: {filters:?}");
+
+    let filters = if filters.len() == 1 {
+        let filter = filters.first().unwrap();
+        serde_json::from_str(filter)
+            .unwrap_or_else(|e| quit_err(e, &format!("filter '{filter}' could not be parsed")))
+    } else {
+        let filters: Vec<_> = filters
+            .iter()
+            .map(|x| {
+                serde_json::from_str::<serde_json::Value>(x)
+                    .unwrap_or_else(|e| quit_err(e, &format!("filter '{x}' could not be parsed")))
+            })
+            .collect();
+        serde_json::json!({
+            "$and": filters
+        })
+    };
+
+    log::debug!("parsed filters: {filters:?}");
+
+    Args {
+        root_dir: root_dir.to_string(),
+        output_json,
+        no_header,
+        limit,
+        offset,
+        ignoretags,
+        sort_by,
+        group_by,
+        reversed,
+        columns,
+        headers,
+        filters,
+    }
+}
+
+fn get_args_match() -> ArgMatches {
     command!()
         .about("Query markdown files")
         .arg(arg!([dir] "Directory to scan").required(true))
