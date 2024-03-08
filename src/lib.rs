@@ -81,7 +81,7 @@ type Table = Vec<Vec<String>>;
 
 impl Index {
     /// Create a markdown document index over `dir`
-    pub fn new(dir: &str, ignore_inline_tags: bool) -> Self {
+    pub fn new(dir: &str, inline_tags: bool) -> Self {
         let mut i = Self { documents: vec![] };
 
         for e in walkdir::WalkDir::new(dir)
@@ -101,7 +101,7 @@ impl Index {
                 let mut frontmatter: serde_yaml::Value =
                     serde_yaml::from_str(&frontmatter).unwrap();
 
-                if !ignore_inline_tags {
+                if inline_tags {
                     let mut tags = frontmatter
                         .as_mapping()
                         .unwrap()

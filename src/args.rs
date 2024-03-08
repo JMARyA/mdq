@@ -8,7 +8,7 @@ pub struct Args {
     pub no_header: bool,
     pub limit: usize,
     pub offset: usize,
-    pub ignoretags: bool,
+    pub use_inline_tags: bool,
     pub sort_by: Option<String>,
     pub group_by: Option<String>,
     pub reversed: bool,
@@ -38,7 +38,7 @@ pub fn get_args() -> Args {
         .parse()
         .unwrap_or_else(|e| quit_err(e, "Offset is not a number"));
 
-    let ignoretags: bool = args.get_flag("ignoretags");
+    let use_inline_tags: bool = args.get_flag("inline-tags");
 
     let sort_by = args
         .get_one::<String>("sortby")
@@ -101,7 +101,7 @@ pub fn get_args() -> Args {
         no_header,
         limit,
         offset,
-        ignoretags,
+        use_inline_tags,
         sort_by,
         group_by,
         reversed,
@@ -138,6 +138,6 @@ fn get_args_match() -> ArgMatches {
         .arg(arg!(-g --groupby <KEY> "Group results based on specified key").required(false))
         .arg(arg!(-r --reverse "Reverse the results").required(false))
         .arg(arg!(--noheader "Dont print header in CSV mode. Useful for scripting").required(false))
-        .arg(arg!(--ignoretags "Don't add inline #tags to tags frontmatter").required(false))
+        .arg(clap::Arg::new("inline-tags").short('t').long("inline-tags").help("Include inline #tags in tags frontmatter").required(false).num_args(0))
         .get_matches()
 }

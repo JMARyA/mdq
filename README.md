@@ -17,7 +17,7 @@ Usage: `mdq [OPTIONS] <dir>`
 | `-g, --groupby <KEY>`   | Group results based on specified key                                                                                                                             |
 | `-r, --reverse`         | Reverse the results                                                                                                                                              |
 | `--noheader`            | Dont print header in CSV mode. Useful for scripting                                                                                                              |
-| `--ignoretags`          | Dont search for and add inline `#tags` to tags frontmatter                                                                                                       |
+| `-t, --inline-tags`     | Search for inline `#tags` and include them in frontmatter                                                                                                        |
 
 ## Filters
 You can query your document using filters. MDQ uses [jsonfilter](https://git.hydrar.de/jmarya/jsonfilter), so you can query similiar to the `find()` function of MongoDB.

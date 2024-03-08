@@ -20,7 +20,7 @@ fn main() {
         args.root_dir
     };
 
-    let mut i = Index::new(&root_dir, args.ignoretags);
+    let mut i = Index::new(&root_dir, args.use_inline_tags);
     if !args.filters.is_null() {
         i = i.filter_documents(&args.filters);
     }
