@@ -13,7 +13,14 @@ fn main() {
     env_logger::init();
     let args = args::get_args();
 
-    let mut i = Index::new(&args.root_dir, args.ignoretags);
+    let root_dir = if args.root_dir == "." {
+        let cwd = std::env::current_dir().unwrap();
+        cwd.to_str().unwrap().to_string()
+    } else {
+        args.root_dir
+    };
+
+    let mut i = Index::new(&root_dir, args.ignoretags);
     if !args.filters.is_null() {
         i = i.filter_documents(&args.filters);
     }
