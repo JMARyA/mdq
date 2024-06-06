@@ -1,6 +1,6 @@
 [package]
 name = "mdq"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 
 [profile.release]
@@ -17,8 +17,8 @@ serde_yaml = "0.9.25"
 walkdir = "2.4.0"
 serde_json = "1.0.107"
 comfy-table = "7.1.0"
-env_logger = "0.10.0"
+env_logger = "0.11"
 log = "0.4.20"
 chrono = "0.4.31"
 csv = "1.3.0"
-jsonfilter = "0.2.0"
+jsonfilter = "0.2"

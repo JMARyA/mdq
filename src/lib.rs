@@ -1,6 +1,42 @@
 use std::collections::{HashMap, HashSet};
 
-/// get frontmatter from markdown document
+/// Extracts the front matter from a Markdown document.
+///
+/// This function scans the input `markdown` string for a YAML front matter block,
+/// which is expected to be enclosed within triple dashes (`---`). The front matter
+/// is typically used in Markdown files to specify metadata such as title, date, tags,
+/// etc.
+///
+/// # Arguments
+///
+/// * `markdown` - A string slice that holds the content of the Markdown document.
+///
+/// # Returns
+///
+/// An `Option<String>` which contains the front matter if found, or `None` if the
+/// front matter block is not present in the provided `markdown`.
+///
+/// # Examples
+///
+/// ```
+/// use mdq::get_frontmatter;
+///
+/// let markdown = r#"---
+/// title: "Sample Document"
+/// date: "2024-06-06"
+/// tags: ["rust", "markdown"]
+/// ---
+///
+/// # Introduction
+///
+/// This is the content of the Markdown document.
+/// "#;
+///
+/// let frontmatter = get_frontmatter(markdown);
+/// assert_eq!(frontmatter, Some(String::from(r#"title: "Sample Document"
+/// date: "2024-06-06"
+/// tags: ["rust", "markdown"]"#)));
+/// ```
 #[must_use]
 pub fn get_frontmatter(markdown: &str) -> Option<String> {
     let frontmatter_regex = regex::Regex::new(r"(?s)^---\s*\n(.*?)\n---").unwrap();
@@ -12,29 +48,38 @@ pub fn get_frontmatter(markdown: &str) -> Option<String> {
     })
 }
 
-trait ToYaml {
-    fn to_yaml(&self) -> serde_yaml::Value;
-}
-
-impl ToYaml for serde_json::Value {
-    fn to_yaml(&self) -> serde_yaml::Value {
-        let str = serde_yaml::to_string(self).unwrap();
-        serde_yaml::from_str(&str).unwrap()
-    }
-}
-
-trait ToJson {
-    fn to_json(&self) -> serde_json::Value;
-}
-
-impl ToJson for serde_yaml::Value {
-    fn to_json(&self) -> serde_json::Value {
-        let str = serde_json::to_string(self).unwrap();
-        serde_json::from_str(&str).unwrap()
-    }
-}
-
-/// get inline #tags from markdown file
+/// Extracts inline `#tags` from a Markdown document.
+///
+/// This function scans the input `markdown` string for inline tags prefixed with a
+/// hash (`#`) symbol. Inline tags are commonly used in Markdown documents to
+/// categorize content or add metadata within the text body.
+///
+/// # Arguments
+///
+/// * `markdown` - A string slice that holds the content of the Markdown document.
+///
+/// # Returns
+///
+/// A `Vec<String>` containing all the tags found in the Markdown document. Each tag
+/// is represented without the leading `#` symbol. If no tags are found, an empty
+/// vector is returned.
+///
+/// # Examples
+///
+/// ```
+/// use mdq::get_inline_tags;
+///
+/// let markdown = r#"
+/// # Introduction
+/// This document is a sample for #Rust and #Markdown.
+///
+/// # Content
+/// Here we have some #examples and #code snippets.
+/// "#;
+///
+/// let tags = get_inline_tags(markdown);
+/// assert_eq!(tags, vec!["Rust", "Markdown", "examples", "code"]);
+/// ```
 #[must_use]
 pub fn get_inline_tags(markdown: &str) -> Vec<String> {
     let tag_regex = regex::Regex::new(r"#(\w+)").unwrap();
@@ -66,9 +111,16 @@ fn system_time_to_date_time(t: std::time::SystemTime) -> chrono::DateTime<chrono
     chrono::TimeZone::timestamp_opt(&chrono::Utc, sec, nsec).unwrap()
 }
 
+/// Represents a Markdown document with a file path and front matter metadata.
+///
+/// The `Document` struct encapsulates the essential properties of a Markdown document,
+/// including its file path and the parsed front matter. The front matter is typically
+/// represented in YAML format and stored as a `serde_yaml::Value`.
 #[derive(Debug, Clone)]
 pub struct Document {
+    /// The file path of the Markdown document.
     pub path: String,
+    /// The parsed front matter metadata in YAML format.
     pub frontmatter: serde_yaml::Value,
 }
 
@@ -79,8 +131,29 @@ pub struct Index {
 
 type Table = Vec<Vec<String>>;
 
+/// Markdown Document Index
 impl Index {
-    /// Create a markdown document index over `dir`
+    /// Creates a new markdown document index for a given directory.
+    ///
+    /// This method scans the specified directory recursively for Markdown files
+    /// (`.md` extension) and constructs an index of `Document` instances. Optionally,
+    /// it can also extract inline tags from the document content and add them to the
+    /// front matter metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `dir` - A string slice representing the directory to scan for Markdown files.
+    /// * `inline_tags` - A boolean indicating whether to extract inline tags from the
+    ///   document content and add them to the front matter.
+    ///
+    /// # Returns
+    ///
+    /// An `Index` instance containing the indexed documents.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if it fails to read a file or if the front matter
+    /// cannot be parsed as valid YAML.
     pub fn new(dir: &str, inline_tags: bool) -> Self {
         let mut i = Self { documents: vec![] };
 
@@ -132,7 +205,21 @@ impl Index {
         i
     }
 
-    /// Build a table with specified columns from index within specified scope
+    /// Builds a table with specified columns from the index within a specified scope.
+    ///
+    /// This method allows you to apply a limit, offset, and sorting to the documents
+    /// in the index, returning a new `Index` with the resulting documents.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - The maximum number of documents to include in the resulting index.
+    /// * `offset` - The number of documents to skip before starting to include documents in the resulting index.
+    /// * `sort` - An optional string specifying the key to sort the documents by.
+    /// * `reverse` - A boolean indicating whether to reverse the sort order.
+    ///
+    /// # Returns
+    ///
+    /// A new `Index` containing the documents within the specified scope.
     #[must_use]
     pub fn apply(&self, limit: usize, offset: usize, sort: Option<String>, reverse: bool) -> Self {
         let mut scope = self.documents.clone();
@@ -163,13 +250,27 @@ impl Index {
         }
     }
 
+    /// Groups the documents in the index by a specified key.
+    ///
+    /// This method groups the documents based on the value of a specified key in the
+    /// front matter, returning a `HashMap` where the keys are the unique values of the
+    /// specified key, and the values are new `Index` instances containing the grouped documents.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A string slice representing the key to group the documents by.
+    ///
+    /// # Returns
+    ///
+    /// A `HashMap` where each key is a unique value of the specified key in the front matter,
+    /// and each value is an `Index` containing the documents that share that key.
     #[must_use]
     pub fn group_by(&self, key: &str) -> HashMap<String, Self> {
         let mut grouped_items: HashMap<String, Vec<Document>> = HashMap::new();
 
         for doc in self.documents.clone() {
             grouped_items
-                .entry(stringify(&doc.get_key(key).to_yaml()))
+                .entry(stringify(&serde_yaml::to_value(&doc.get_key(key)).unwrap()))
                 .or_default()
                 .push(doc);
         }
@@ -180,6 +281,20 @@ impl Index {
             .collect()
     }
 
+    /// Creates a table data representation of the documents with specified columns.
+    ///
+    /// This method constructs a table where each row represents a document and each
+    /// column corresponds to a specified key in the front matter. The resulting table
+    /// can be used for display or further processing.
+    ///
+    /// # Arguments
+    ///
+    /// * `col` - A slice of strings representing the keys to include as columns in the table.
+    ///
+    /// # Returns
+    ///
+    /// A `Table` (vector of vectors of strings) where each inner vector represents a row of
+    /// the table, and each string represents a cell in the row.
     #[must_use]
     pub fn create_table_data(&self, col: &[String]) -> Table {
         let mut rows = vec![];
@@ -187,7 +302,7 @@ impl Index {
         for doc in &self.documents {
             let mut rcol = vec![];
             for c in col {
-                rcol.push(stringify(&doc.get_key(c).to_yaml()));
+                rcol.push(stringify(&serde_yaml::to_value(&doc.get_key(c)).unwrap()));
             }
             rows.push(rcol);
         }
@@ -195,7 +310,18 @@ impl Index {
         rows
     }
 
-    /// Apply filters to the documents of the index returning a new filtered index
+    /// Applies filters to the documents of the index, returning a new filtered index.
+    ///
+    /// This method filters the documents based on the specified [JSON filter](https://crates.io/crates/jsonfilter) criteria,
+    /// returning a new `Index` instance containing only the documents that match the filter.
+    ///
+    /// # Arguments
+    ///
+    /// * `filters` - A `serde_json::Value` representing the filter criteria.
+    ///
+    /// # Returns
+    ///
+    /// A new `Index` containing the filtered documents.
     #[must_use]
     pub fn filter_documents(&self, filters: &serde_json::Value) -> Self {
         let docs: Vec<_> = self
@@ -221,8 +347,22 @@ impl Index {
 }
 
 impl Document {
-    /// Get a key from document.
-    /// This will return internal properties first, then it will search the document frontmatter for the key and return it. If nothing was found an empty string is returned.
+    /// Retrieves the value of a specified key from the document.
+    ///
+    /// This method first checks internal properties such as file metadata and path information.
+    /// If the key does not match any internal properties, it searches the document's front matter.
+    /// If the key is not found, it returns a JSON null value.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A string slice representing the key to retrieve the value for. The key can be
+    ///   either an internal property or a front matter field. Nested front matter fields can be
+    ///   accessed using dot notation.
+    ///
+    /// # Returns
+    ///
+    /// A `serde_json::Value` representing the value associated with the specified key. If the key
+    /// is not found, it returns `serde_json::Value::Null`.
     fn get_key(&self, key: &str) -> serde_json::Value {
         match key {
             "file.title" => {
@@ -322,19 +462,28 @@ impl Document {
                 data = data_opt.unwrap();
             }
 
-            data.to_json()
+            serde_json::to_value(data).unwrap()
         } else {
-            self.frontmatter
-                .as_mapping()
-                .unwrap()
-                .get(key)
-                .map_or_else(|| serde_json::Value::Null, ToJson::to_json)
+            self.frontmatter.as_mapping().unwrap().get(key).map_or_else(
+                || serde_json::Value::Null,
+                |x| serde_json::to_value(x).unwrap(),
+            )
         }
     }
 
+    /// Retrieves the complete front matter of the document, including additional file metadata.
+    ///
+    /// This method returns the full front matter of the document as a JSON object, with added
+    /// metadata fields such as file name, title, parent directory, folder, extension, size,
+    /// creation time, modification time, and path.
+    ///
+    /// # Returns
+    ///
+    /// A `serde_json::Value` representing the full front matter of the document, enriched with
+    /// additional file metadata.
     #[must_use]
     pub fn get_full_frontmatter(&self) -> serde_json::Value {
-        let mut frontmatter = self.frontmatter.to_json();
+        let mut frontmatter = serde_json::to_value(&self.frontmatter).unwrap();
         let frontmatter_obj = frontmatter.as_object_mut().unwrap();
         frontmatter_obj.insert("file.title".into(), self.get_key("file.title"));
         frontmatter_obj.insert("file.name".into(), self.get_key("file.name"));
