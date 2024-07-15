@@ -114,7 +114,7 @@ pub fn get_args() -> Args {
 fn get_args_match() -> ArgMatches {
     command!()
         .about("Query markdown files")
-        .arg(arg!([dir] "Directory to scan").required(true))
+        .arg(arg!([dir] "Directory to scan").required(false).default_value("."))
         .arg(arg!(-j --json "Output result as JSON").required(false))
         .arg(
             arg!(-l --limit <LIMIT> "Limit number of results returned")

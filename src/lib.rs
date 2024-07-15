@@ -167,6 +167,7 @@ impl Index {
             if e.path().extension().is_none() {
                 continue;
             }
+
             if e.path().extension().unwrap().to_str().unwrap() == "md" {
                 let path = e.path().to_str().unwrap().to_owned();
                 let content = std::fs::read_to_string(&path).unwrap();
@@ -270,14 +271,14 @@ impl Index {
 
         for doc in self.documents.clone() {
             grouped_items
-                .entry(stringify(&serde_yaml::to_value(&doc.get_key(key)).unwrap()))
+                .entry(stringify(&serde_yaml::to_value(doc.get_key(key)).unwrap()))
                 .or_default()
                 .push(doc);
         }
 
         grouped_items
             .into_iter()
-            .map(|(key, item)| (key, Index { documents: item }))
+            .map(|(key, item)| (key, Self { documents: item }))
             .collect()
     }
 
@@ -302,7 +303,7 @@ impl Index {
         for doc in &self.documents {
             let mut rcol = vec![];
             for c in col {
-                rcol.push(stringify(&serde_yaml::to_value(&doc.get_key(c)).unwrap()));
+                rcol.push(stringify(&serde_yaml::to_value(doc.get_key(c)).unwrap()));
             }
             rows.push(rcol);
         }
