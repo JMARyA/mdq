@@ -1,0 +1,13 @@
+when:
+  branch:
+    - main
+  event:
+    - push
+    - pull_request
+
+steps:
+  - name: test
+    image: rust:latest
+    commands:
+      - cargo check
+      - cargo test
