@@ -1,143 +1,110 @@
-use clap::{arg, command, ArgMatches};
-
 use crate::quit_err;
+use clap::{Parser, Subcommand};
+use serde_json::Value;
 
+/// Command-line arguments
+#[derive(Parser, Debug)]
+#[command(name = "Markdown Query", about = "Query markdown files", version)]
 pub struct Args {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
+    /// Directory to scan
+    #[arg(default_value = ".")]
     pub root_dir: String,
+
+    /// Output result as JSON
+    #[arg(short, long)]
     pub output_json: bool,
+
+    /// Don't print header in CSV mode. Useful for scripting
+    #[arg(long)]
     pub no_header: bool,
+
+    /// Limit number of results returned
+    #[arg(short, long, default_value = "0")]
     pub limit: usize,
+
+    /// Offset results by a factor. Useful when used with --limit
+    #[arg(long, default_value = "0")]
     pub offset: usize,
-    pub use_inline_tags: bool,
+
+    /// Filter to apply to the documents (JSON format)
+    #[arg(short, long)]
+    pub filter: Vec<String>,
+
+    /// Specify output columns. You can rename headers using `:` like `VariableName:OutputName`
+    #[arg(short, long, default_value = "file.title:Title")]
+    pub column: Vec<String>,
+
+    /// Sort results based on specified key
+    #[arg(short, long)]
     pub sort_by: Option<String>,
+
+    /// Group results based on specified key
+    #[arg(short, long)]
     pub group_by: Option<String>,
+
+    /// Reverse the results
+    #[arg(short, long)]
     pub reversed: bool,
-    pub columns: Vec<String>,
-    pub headers: Vec<String>,
-    pub filters: serde_json::Value,
+
+    /// Include inline #tags in tags frontmatter
+    #[arg(short = 't', long)]
+    pub use_inline_tags: bool,
 }
 
-pub fn get_args() -> Args {
-    let args = get_args_match();
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Preprocess a single markdown file for dataview blocks
+    Preprocess {
+        /// File to preprocess
+        file: String,
 
-    let root_dir = args.get_one::<String>("dir").unwrap();
+        /// Optional root directory
+        #[arg(long)]
+        root: Option<String>,
+    },
+}
 
-    let output_json = args.get_flag("json");
+impl Args {
+    /// Parses filters and returns a single `serde_json::Value`
+    pub fn parsed_filters(&self) -> Value {
+        if self.filter.is_empty() {
+            return serde_json::json!({});
+        }
 
-    let no_header = args.get_flag("noheader");
-
-    let limit: usize = args
-        .get_one::<String>("limit")
-        .unwrap()
-        .parse()
-        .unwrap_or_else(|e| quit_err(e, "Limit is not a number"));
-
-    let offset: usize = args
-        .get_one::<String>("offset")
-        .unwrap()
-        .parse()
-        .unwrap_or_else(|e| quit_err(e, "Offset is not a number"));
-
-    let use_inline_tags: bool = args.get_flag("inline-tags");
-
-    let sort_by = args
-        .get_one::<String>("sortby")
-        .map(std::borrow::ToOwned::to_owned);
-
-    let group_by = args
-        .get_one::<String>("groupby")
-        .map(std::borrow::ToOwned::to_owned);
-
-    let reversed = args.get_flag("reverse");
-
-    let columns: Vec<_> = args
-        .get_many::<String>("column")
-        .unwrap()
-        .cloned()
-        .collect();
-    log::debug!("columns: {columns:?}");
-
-    let (columns, headers): (Vec<_>, Vec<_>) = columns
-        .into_iter()
-        .map(|x| {
-            let (column, header_rename) = x.split_once(':').unwrap_or((&x, &x));
-
-            (column.to_owned(), header_rename.to_owned())
-        })
-        .unzip();
-
-    if columns != headers {
-        log::debug!("renamed headers: {headers:?}");
+        if self.filter.len() == 1 {
+            serde_json::from_str(&self.filter[0]).unwrap_or_else(|e| {
+                quit_err(
+                    e,
+                    &format!("filter '{}' could not be parsed", &self.filter[0]),
+                )
+            })
+        } else {
+            let filters: Vec<_> = self
+                .filter
+                .iter()
+                .map(|f| {
+                    serde_json::from_str::<Value>(f).unwrap_or_else(|e| {
+                        quit_err(e, &format!("filter '{}' could not be parsed", f))
+                    })
+                })
+                .collect();
+            serde_json::json!({ "$and": filters })
+        }
     }
 
-    let filters = args
-        .get_many::<String>("filter")
-        .map_or_else(std::vec::Vec::new, std::iter::Iterator::collect);
-
-    log::debug!("raw filters: {filters:?}");
-
-    let filters = if filters.len() == 1 {
-        let filter = filters.first().unwrap();
-        serde_json::from_str(filter)
-            .unwrap_or_else(|e| quit_err(e, &format!("filter '{filter}' could not be parsed")))
-    } else {
-        let filters: Vec<_> = filters
+    /// Returns column names and optional renamed headers
+    pub fn columns_and_headers(&self) -> (Vec<String>, Vec<String>) {
+        let (columns, headers): (Vec<_>, Vec<_>) = self
+            .column
             .iter()
             .map(|x| {
-                serde_json::from_str::<serde_json::Value>(x)
-                    .unwrap_or_else(|e| quit_err(e, &format!("filter '{x}' could not be parsed")))
+                let (col, header) = x.split_once(':').unwrap_or((&x, &x));
+                (col.to_string(), header.to_string())
             })
-            .collect();
-        serde_json::json!({
-            "$and": filters
-        })
-    };
-
-    log::debug!("parsed filters: {filters:?}");
-
-    Args {
-        root_dir: root_dir.to_string(),
-        output_json,
-        no_header,
-        limit,
-        offset,
-        use_inline_tags,
-        sort_by,
-        group_by,
-        reversed,
-        columns,
-        headers,
-        filters,
+            .unzip();
+        (columns, headers)
     }
-}
-
-fn get_args_match() -> ArgMatches {
-    command!()
-        .about("Query markdown files")
-        .arg(arg!([dir] "Directory to scan").required(false).default_value("."))
-        .arg(arg!(-j --json "Output result as JSON").required(false))
-        .arg(
-            arg!(-l --limit <LIMIT> "Limit number of results returned")
-                .required(false)
-                .default_value("0")
-                .allow_negative_numbers(false),
-        )
-        .arg(
-            arg!(--offset <OFFSET> "Offset results by a factor. Useful when used with --limit")
-                .required(false)
-                .allow_negative_numbers(false)
-                .default_value("0"),
-        )
-        .arg(arg!(-f --filter <FILTER>... "Filter to apply to the documents").required(false))
-        .arg(
-            arg!(-c --column <COLUMN>... "Specify output columns. You can rename the text displayed in the header using the `:` character like this: VariableName:OutputName")
-                .required(false)
-                .default_value("file.title:Title"),
-        )
-        .arg(arg!(-s --sortby <KEY> "Sort results based on specified key").required(false))
-        .arg(arg!(-g --groupby <KEY> "Group results based on specified key").required(false))
-        .arg(arg!(-r --reverse "Reverse the results").required(false))
-        .arg(arg!(--noheader "Dont print header in CSV mode. Useful for scripting").required(false))
-        .arg(clap::Arg::new("inline-tags").short('t').long("inline-tags").help("Include inline #tags in tags frontmatter").required(false).num_args(0))
-        .get_matches()
 }

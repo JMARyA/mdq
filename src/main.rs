@@ -1,8 +1,10 @@
 use std::{collections::HashMap, io::IsTerminal};
 
+use clap::Parser;
 use mdq::Index;
 
 mod args;
+mod dataview;
 
 pub fn quit_err(e: impl std::error::Error, msg: &str) -> ! {
     eprintln!("Error: {msg}. {e}");
@@ -11,41 +13,49 @@ pub fn quit_err(e: impl std::error::Error, msg: &str) -> ! {
 
 fn main() {
     env_logger::init();
-    let args = args::get_args();
+    let args = args::Args::parse();
+
+    if let Some(args::Commands::Preprocess { file, root }) = args.command {
+        let processed = dataview::preprocess(file, root);
+        println!("{processed}");
+        return;
+    }
 
     let root_dir = if args.root_dir == "." {
         let cwd = std::env::current_dir().unwrap();
         cwd.to_str().unwrap().to_string()
     } else {
-        args.root_dir
+        args.root_dir.clone()
     };
 
     let mut i = Index::new(&root_dir, args.use_inline_tags);
-    if !args.filters.is_null() {
-        i = i.filter_documents(&args.filters);
+    if !args.parsed_filters().is_null() {
+        i = i.filter_documents(&args.parsed_filters());
     }
 
-    i = i.apply(args.limit, args.offset, args.sort_by, args.reversed);
+    i = i.apply(args.limit, args.offset, args.sort_by.clone(), args.reversed);
+
+    let (columns, headers) = args.columns_and_headers();
 
     if args.group_by.is_some() {
         let grouped = i.group_by(&args.group_by.clone().unwrap());
         let grouped: HashMap<_, _> = grouped
             .into_iter()
-            .map(|(key, val)| (key, val.create_table_data(&args.columns)))
+            .map(|(key, val)| (key, val.create_table_data(&columns)))
             .collect();
 
         if args.output_json {
             let mut data = serde_json::json!(
                 {
-                    "columns": args.columns,
+                    "columns": columns,
                     "groupby": args.group_by.unwrap(),
                     "results": grouped
                 }
             );
-            if args.columns != args.headers {
+            if columns != headers {
                 data.as_object_mut()
                     .unwrap()
-                    .insert("headers".into(), args.headers.into());
+                    .insert("headers".into(), headers.into());
             }
             println!("{}", serde_json::to_string(&data).unwrap());
             return;
@@ -61,20 +71,13 @@ fn main() {
             });
             for group in grouped_keys {
                 println!("# {group}");
-                print_result(grouped.get(group).unwrap().clone(), &args.headers);
+                print_result(grouped.get(group).unwrap().clone(), &headers);
             }
         } else {
             let mut first = true;
             for (_, val) in grouped {
                 if first {
-                    print_csv(
-                        val,
-                        if args.no_header {
-                            None
-                        } else {
-                            Some(&args.headers)
-                        },
-                    );
+                    print_csv(val, if args.no_header { None } else { Some(&headers) });
                     first = false;
                     continue;
                 }
@@ -84,34 +87,27 @@ fn main() {
         return;
     }
 
-    let data = i.create_table_data(&args.columns);
+    let data = i.create_table_data(&columns);
 
     if args.output_json {
         let mut data = serde_json::json!(
             {
-                "columns": args.columns,
+                "columns": columns,
                 "results": data
             }
         );
-        if args.columns != args.headers {
+        if columns != headers {
             data.as_object_mut()
                 .unwrap()
-                .insert("headers".into(), args.headers.into());
+                .insert("headers".into(), headers.into());
         }
         println!("{}", serde_json::to_string(&data).unwrap());
         return;
     }
     if std::io::stdout().is_terminal() {
-        print_result(data, &args.headers);
+        print_result(data, &headers);
     } else {
-        print_csv(
-            data,
-            if args.no_header {
-                None
-            } else {
-                Some(&args.headers)
-            },
-        );
+        print_csv(data, if args.no_header { None } else { Some(&headers) });
     }
 }
 
