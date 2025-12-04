@@ -50,6 +50,20 @@ pub fn get_frontmatter(markdown: &str) -> Option<String> {
     })
 }
 
+pub fn split_frontmatter(markdown: &str) -> Option<(String, String)> {
+    // Regex to match YAML frontmatter at the start of the file
+    let frontmatter_regex = regex::Regex::new(r"(?s)^---\s*\n(.*?)\n---\s*\n?").unwrap();
+
+    frontmatter_regex.captures(markdown).map(|captures| {
+        let frontmatter = captures
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let rest = frontmatter_regex.replace(markdown, "").to_string();
+        (frontmatter, rest)
+    })
+}
+
 /// Extracts inline `#tags` from a Markdown document.
 ///
 /// This function scans the input `markdown` string for inline tags prefixed with a

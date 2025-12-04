@@ -56,6 +56,10 @@ impl SelectionColumns {
     }
 
     pub fn ensure_first_col(mut self) -> Self {
+        // TODO : expressions
+        // name: "File (" + count() + ")"
+        // expr: mdlink(file.name, file.path)
+
         if self.cols.is_empty() {
             self.cols.push_front(SelectionField {
                 expr: "file.name".to_string(),
@@ -253,7 +257,7 @@ impl WhereClause {
 
 impl DataviewQuery {
     /// Run a dataview query on a markdown index
-    pub fn run_on(&self, mut index: Index) -> DataviewQueryResult {
+    pub fn run_on(&self, index: &Index) -> DataviewQueryResult {
         let selection = if self.selection.is_empty() {
             SelectionColumns::default().ensure_first_col()
         } else {
@@ -294,7 +298,8 @@ impl DataviewQuery {
         );
 
         // TODO : Error handling
-        index = index.filter_documents(|x| filter.eval(&x.get_full_frontmatter()).unwrap_or(false));
+        let index =
+            index.filter_documents(|x| filter.eval(&x.get_full_frontmatter()).unwrap_or(false));
 
         let i = index.apply(
             self.limit.clone().map(|x| x.limit).unwrap_or(0) as usize,

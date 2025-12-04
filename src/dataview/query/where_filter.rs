@@ -71,7 +71,7 @@ fn literal(input: &str) -> IResult<&str, Expr> {
 fn function_call(input: &str) -> IResult<&str, Expr> {
     let is_ident = |c: char| c.is_alphanumeric() || c == '_';
 
-    let x = map(
+    map(
         (
             multispace0,
             take_while1(is_ident),
@@ -86,10 +86,7 @@ fn function_call(input: &str) -> IResult<&str, Expr> {
             args,
         },
     )
-    .parse(input);
-
-    println!("f {input} -> {x:?}");
-    x
+    .parse(input)
 }
 
 fn primary(input: &str) -> IResult<&str, Expr> {
