@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::IsTerminal};
 
 use clap::Parser;
-use mdq::Index;
+use mdq::{filter_jsonfilter, Index};
 
 mod args;
 mod dataview;
@@ -30,7 +30,8 @@ fn main() {
 
     let mut i = Index::new(&root_dir, args.use_inline_tags);
     if !args.parsed_filters().is_null() {
-        i = i.filter_documents(&args.parsed_filters());
+        let filters = args.parsed_filters();
+        i = i.filter_documents(|x| filter_jsonfilter(&filters, &x.get_full_frontmatter()));
     }
 
     i = i.apply(args.limit, args.offset, args.sort_by.clone(), args.reversed);

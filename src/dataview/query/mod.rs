@@ -1,4 +1,7 @@
-use std::collections::VecDeque;
+#[cfg(test)]
+mod tests;
+
+pub mod where_filter;
 
 use mdq::Index;
 use nom::bytes::take_till;
@@ -6,13 +9,17 @@ use nom::character::complete::char;
 use nom::combinator::complete;
 use nom::{
     branch::alt,
-    bytes::{complete::tag_no_case, tag, take_till1, take_until},
+    bytes::{complete::tag_no_case, tag, take_till1},
     character::complete::{multispace0, multispace1},
     combinator::{map, opt},
     multi::separated_list1,
-    sequence::{delimited, pair, preceded, terminated},
+    sequence::{delimited, pair, preceded},
     IResult, Parser,
 };
+use serde_json::json;
+use std::collections::VecDeque;
+
+use crate::dataview::query::where_filter::WhereFilter;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct DataviewQuery {
@@ -186,6 +193,10 @@ impl WhereClause {
         }
     }
 
+    pub fn parse_filter(&self) -> WhereFilter {
+        WhereFilter::parse(&self.expr).unwrap().1
+    }
+
     pub fn parse(input: &str) -> IResult<&str, WhereClause> {
         // First, consume the leading "WHERE" keyword
         let (input, _) =
@@ -223,7 +234,8 @@ impl WhereClause {
 }
 
 impl DataviewQuery {
-    pub fn run_on(&self, index: Index) -> DataviewQueryResult {
+    /// Run a dataview query on a markdown index
+    pub fn run_on(&self, mut index: Index) -> DataviewQueryResult {
         let selection = self
             .selection
             .parse_expr()
@@ -234,6 +246,26 @@ impl DataviewQuery {
         println!("Parsed columns: {cols:?}");
 
         let sort = self.sort_clause.clone().map(|x| x.expr);
+
+        let (_, filter) = WhereFilter::parse("true").unwrap();
+
+        match &self.from_clause {
+            FromSource::Folder(folder) => {
+                if folder.as_str() == "/" {
+                } else {
+                    // TODO : folder filter add
+                }
+            }
+            FromSource::Tag(tag) => {
+                // TODO : add tag filter
+            }
+        }
+
+        if let Some(where_c) = &self.where_clause {
+            let filter = where_c.parse_filter();
+        }
+
+        index = index.filter_documents(|x| filter.eval(&x.get_full_frontmatter()).unwrap());
 
         let i = index.apply(
             self.limit.clone().map(|x| x.limit).unwrap_or(0) as usize,
@@ -409,248 +441,4 @@ impl SortClause {
         )
         .parse(input)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Macro to generate DataviewQuery parse tests
-    macro_rules! test_query_parse {
-        ($name:ident, $input:expr, $expected:expr) => {
-            #[test]
-            fn $name() {
-                let (_, parsed) = DataviewQuery::parse($input).unwrap();
-                assert_eq!(parsed, $expected);
-            }
-        };
-    }
-
-    test_query_parse!(
-        basic_list,
-        r#"list"#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::default(),
-            from_clause: FromSource::Folder("/".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: None,
-        }
-    );
-
-    test_query_parse!(
-        basic_table,
-        r#"table"#,
-        DataviewQuery {
-            kind: QueryKind::Table,
-            selection: Selection::default(),
-            from_clause: FromSource::Folder("/".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: None,
-        }
-    );
-
-    test_query_parse!(
-        task_query,
-        r#"TASK"#,
-        DataviewQuery {
-            kind: QueryKind::Task,
-            selection: Selection::default(),
-            from_clause: FromSource::Folder("/".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: None,
-        }
-    );
-
-    test_query_parse!(
-        table_recipes,
-        r#"TABLE recipe-type AS "type", portions, length FROM #recipes"#,
-        DataviewQuery {
-            kind: QueryKind::Table,
-            selection: Selection {
-                expr: r#"recipe-type AS "type", portions, length"#.to_string()
-            },
-            from_clause: FromSource::Tag("recipes".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: None,
-        }
-    );
-
-    test_query_parse!(
-        list_open_assignments,
-        r#"LIST FROM #assignments WHERE status = "open""#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::default(),
-            from_clause: FromSource::Tag("assignments".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: Some(WhereClause::new("status = \"open\"")),
-        }
-    );
-
-    test_query_parse!(
-        table_appointments,
-        r#"TABLE file.ctime, appointment.type, appointment.time, follow-ups FROM "30 Protocols/32 Management" WHERE follow-ups SORT appointment.time"#,
-        DataviewQuery {
-            kind: QueryKind::Table,
-            selection: Selection::new("file.ctime, appointment.type, appointment.time, follow-ups"),
-            from_clause: FromSource::Folder("30 Protocols/32 Management".to_string()),
-            sort_clause: Some(SortClause {
-                expr: "appointment.time".to_string(),
-                dir: SortDirection::Asc,
-            }),
-            limit: None,
-            where_clause: Some(WhereClause::new("follow-ups")),
-        }
-    );
-
-    test_query_parse!(
-        list_sort,
-        r#"list sort file.ctime desc"#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::default(),
-            from_clause: FromSource::Folder("/".to_string()),
-            sort_clause: Some(SortClause {
-                expr: "file.ctime".to_string(),
-                dir: SortDirection::Desc
-            }),
-            limit: None,
-            where_clause: None
-        }
-    );
-
-    // LIST with file.mtime filter
-    test_query_parse!(
-        list_recent,
-        r#"LIST WHERE file.mtime >= date(today) - dur(1 day)"#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::default(),
-            from_clause: FromSource::Folder("/".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: Some(WhereClause::new("file.mtime >= date(today) - dur(1 day)")),
-        }
-    );
-
-    // LIST projects not completed and older than 1 month
-    test_query_parse!(
-        list_old_projects,
-        r#"LIST FROM #projects WHERE !completed AND file.ctime <= date(today) - dur(1 month)"#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::default(),
-            from_clause: FromSource::Tag("projects".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: Some(WhereClause::new(
-                "!completed AND file.ctime <= date(today) - dur(1 month)"
-            )),
-        }
-    );
-
-    // LIST games with price filter
-    test_query_parse!(
-        list_expensive_games,
-        r#"LIST FROM "Games" WHERE price > 10"#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::default(),
-            from_clause: FromSource::Folder("Games".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: Some(WhereClause::new("price > 10")),
-        }
-    );
-
-    // TASK due today or earlier
-    test_query_parse!(
-        task_due,
-        r#"TASK WHERE due <= date(today)"#,
-        DataviewQuery {
-            kind: QueryKind::Task,
-            selection: Selection::default(),
-            from_clause: FromSource::Folder("/".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: Some(WhereClause::new("due <= date(today)")),
-        }
-    );
-
-    // LIST homework not done
-    test_query_parse!(
-        list_homework_pending,
-        r#"LIST FROM #homework WHERE status != "done""#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::default(),
-            from_clause: FromSource::Tag("homework".to_string()),
-            sort_clause: None,
-            limit: None,
-            where_clause: Some(WhereClause::new("status != \"done\"")),
-        }
-    );
-
-    // LIST by file.day sorted descending
-    test_query_parse!(
-        list_by_day,
-        r#"LIST file.day
-WHERE file.day
-SORT file.day DESC"#,
-        DataviewQuery {
-            kind: QueryKind::List,
-            selection: Selection::new("file.day"),
-            from_clause: FromSource::Folder("/".to_string()),
-            sort_clause: Some(SortClause {
-                expr: "file.day".to_string(),
-                dir: SortDirection::Desc,
-            }),
-            limit: None,
-            where_clause: Some(WhereClause::new("file.day")),
-        }
-    );
-
-    // TABLE books last modified
-    test_query_parse!(
-        table_books,
-        r#"TABLE file.mtime AS "Last Modified"
-FROM "books"
-SORT file.mtime DESC"#,
-        DataviewQuery {
-            kind: QueryKind::Table,
-            selection: Selection::new(r#"file.mtime AS "Last Modified""#),
-            from_clause: FromSource::Folder("books".to_string()),
-            sort_clause: Some(SortClause {
-                expr: "file.mtime".to_string(),
-                dir: SortDirection::Desc,
-            }),
-            limit: None,
-            where_clause: None,
-        }
-    );
-
-    // TABLE games with multiple columns sorted by rating
-    test_query_parse!(
-        table_games,
-        r#"TABLE time-played AS "Time Played", length AS "Length", rating AS "Rating" FROM "games" SORT rating DESC"#,
-        DataviewQuery {
-            kind: QueryKind::Table,
-            selection: Selection::new(
-                r#"time-played AS "Time Played", length AS "Length", rating AS "Rating""#
-            ),
-            from_clause: FromSource::Folder("games".to_string()),
-            sort_clause: Some(SortClause {
-                expr: "rating".to_string(),
-                dir: SortDirection::Desc,
-            }),
-            limit: None,
-            where_clause: None,
-        }
-    );
 }

@@ -4,8 +4,6 @@ pub mod transform;
 pub fn preprocess(file: String, root: Option<String>) -> String {
     let f = std::fs::read_to_string(&file).unwrap();
 
-    println!("doing root {root:?} --- {file}");
-
     let root = match root {
         Some(r) => r,
         None => {
@@ -18,8 +16,6 @@ pub fn preprocess(file: String, root: Option<String>) -> String {
             parent.to_string_lossy().into_owned()
         }
     };
-
-    println!("doing root {root}");
 
     transform::eval_dataview_blocks(&f, root)
 }

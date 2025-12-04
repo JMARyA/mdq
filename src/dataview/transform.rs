@@ -5,6 +5,7 @@ use comrak::{
 };
 use mdq::Index;
 
+/// Take a markdown document and a root directory and evaluate all `dataview` code blocks.
 pub fn eval_dataview_blocks(md: &str, root_dir: String) -> String {
     let arena = Arena::new();
     let root = parse_document(&arena, md, &Options::default());
@@ -23,8 +24,6 @@ pub fn eval_dataview_blocks(md: &str, root_dir: String) -> String {
 
                 let index = Index::new(root, true);
                 let replacement = parsed.run_on(index).to_markdown();
-
-                println!("Replace with {replacement}");
 
                 data.value = NodeValue::Paragraph;
                 let text = arena.alloc(comrak::nodes::AstNode::new(

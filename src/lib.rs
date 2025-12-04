@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use jsonfilter::FilterError;
+
 /// Extracts the front matter from a Markdown document.
 ///
 /// This function scans the input `markdown` string for a YAML front matter block,
@@ -324,27 +326,30 @@ impl Index {
     ///
     /// A new `Index` containing the filtered documents.
     #[must_use]
-    pub fn filter_documents(&self, filters: &serde_json::Value) -> Self {
+    pub fn filter_documents<F: FnMut(&Document) -> bool>(&self, mut filter: F) -> Self {
         let docs: Vec<_> = self
             .documents
             .iter()
-            .filter(|x| {
-                let res = jsonfilter::try_matches(filters, &x.get_full_frontmatter());
-                match res {
-                    Ok(valid) => Ok(valid),
-                    Err(e) => match e {
-                        jsonfilter::FilterError::InvalidFilter
-                        | jsonfilter::FilterError::UnknownOperator => Err(e),
-                        jsonfilter::FilterError::KeyNotFound => Ok(false),
-                    },
-                }
-                .unwrap()
-            })
+            .filter(|x| filter(*x))
             .cloned()
             .collect();
 
         Self { documents: docs }
     }
+}
+
+pub fn filter_jsonfilter(filters: &serde_json::Value, doc: &serde_json::Value) -> bool {
+    let res = jsonfilter::try_matches(filters, doc);
+    match res {
+        Ok(valid) => Ok(valid),
+        Err(e) => match e {
+            jsonfilter::FilterError::InvalidFilter | jsonfilter::FilterError::UnknownOperator => {
+                Err(e)
+            }
+            jsonfilter::FilterError::KeyNotFound => Ok(false),
+        },
+    }
+    .unwrap()
 }
 
 impl Document {
