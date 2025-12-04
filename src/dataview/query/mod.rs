@@ -263,11 +263,9 @@ impl DataviewQuery {
                 .ensure_first_col()
         };
 
-        println!("found {selection:?}");
-
         let cols = selection.columns();
         let headers = selection.headers();
-        println!("Parsed columns: {cols:?}");
+        log::info!("Parsed columns: {cols:?}");
 
         let sort = self.sort_clause.clone().map(|x| x.expr);
 
@@ -288,6 +286,12 @@ impl DataviewQuery {
         if let Some(where_c) = &self.where_clause {
             filter = where_c.parse_filter();
         }
+
+        log::info!(
+            "Filter: {} -> {:#?}",
+            self.where_clause.as_ref().unwrap().expr,
+            filter
+        );
 
         // TODO : Error handling
         index = index.filter_documents(|x| filter.eval(&x.get_full_frontmatter()).unwrap_or(false));

@@ -30,7 +30,7 @@ pub enum Expr {
 }
 
 fn identifier(input: &str) -> IResult<&str, Expr> {
-    let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '.';
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '.' || c == '-';
 
     map(take_while1(is_ident), |s: &str| {
         Expr::Identifier(s.to_string())
@@ -69,21 +69,27 @@ fn literal(input: &str) -> IResult<&str, Expr> {
 }
 
 fn function_call(input: &str) -> IResult<&str, Expr> {
-    map(
-        tuple((
-            take_while1(|c: char| c.is_alphabetic()),
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+
+    let x = map(
+        (
+            multispace0,
+            take_while1(is_ident),
             delimited(
                 char('('),
                 separated_list0(delimited(multispace0, char(','), multispace0), expr),
                 char(')'),
             ),
-        )),
-        |(name, args)| Expr::FunctionCall {
+        ),
+        |(_, name, args)| Expr::FunctionCall {
             name: name.to_string(),
             args,
         },
     )
-    .parse(input)
+    .parse(input);
+
+    println!("f {input} -> {x:?}");
+    x
 }
 
 fn primary(input: &str) -> IResult<&str, Expr> {
@@ -103,18 +109,27 @@ fn primary(input: &str) -> IResult<&str, Expr> {
     .parse(input)
 }
 
-fn binary_op(input: &str) -> IResult<&str, BinaryOp> {
+// Helper to parse comparison operators only
+fn comparison_op(input: &str) -> IResult<&str, BinaryOp> {
     preceded(
         multispace0,
         alt((
-            map(tag_no_case("and"), |_| BinaryOp::And),
-            map(tag_no_case("or"), |_| BinaryOp::Or),
             map(tag("<="), |_| BinaryOp::Lte),
             map(tag(">="), |_| BinaryOp::Gte),
             map(tag("!="), |_| BinaryOp::Neq),
             map(tag("="), |_| BinaryOp::Eq),
             map(tag("<"), |_| BinaryOp::Lt),
             map(tag(">"), |_| BinaryOp::Gt),
+        )),
+    )
+    .parse(input)
+}
+
+// Helper to parse arithmetic operators only
+fn arithmetic_op(input: &str) -> IResult<&str, BinaryOp> {
+    preceded(
+        multispace0,
+        alt((
             map(tag("+"), |_| BinaryOp::Add),
             map(tag("-"), |_| BinaryOp::Sub),
             map(tag("*"), |_| BinaryOp::Mul),
@@ -124,13 +139,14 @@ fn binary_op(input: &str) -> IResult<&str, BinaryOp> {
     .parse(input)
 }
 
-fn comparison(input: &str) -> IResult<&str, Expr> {
+// Parse arithmetic expressions (highest precedence after primary)
+fn arithmetic(input: &str) -> IResult<&str, Expr> {
     let (input, left) = primary(input)?;
 
     let mut rest = input;
     let mut node = left;
 
-    while let Ok((next, op)) = binary_op(rest) {
+    while let Ok((next, op)) = arithmetic_op(rest) {
         let (next, right) = primary(next)?;
         node = Expr::BinaryOp {
             left: Box::new(node),
@@ -142,25 +158,75 @@ fn comparison(input: &str) -> IResult<&str, Expr> {
 
     Ok((rest, node))
 }
-fn expr(input: &str) -> IResult<&str, Expr> {
+
+// Parse comparison expressions
+fn comparison(input: &str) -> IResult<&str, Expr> {
+    let (input, left) = arithmetic(input)?;
+
+    let mut rest = input;
+    let mut node = left;
+
+    while let Ok((next, op)) = comparison_op(rest) {
+        let (next, right) = arithmetic(next)?;
+        node = Expr::BinaryOp {
+            left: Box::new(node),
+            op,
+            right: Box::new(right),
+        };
+        rest = next;
+    }
+
+    Ok((rest, node))
+}
+
+// Parse AND expressions (higher precedence than OR)
+fn and_expr(input: &str) -> IResult<&str, Expr> {
     let (input, left) = comparison(input)?;
 
     let mut rest = input;
     let mut node = left;
 
-    while let Ok((next, op)) = binary_op(rest) {
-        match op {
-            BinaryOp::And | BinaryOp::Or => {
-                let (next, right) = comparison(next)?;
-                node = Expr::BinaryOp {
-                    left: Box::new(node),
-                    op,
-                    right: Box::new(right),
-                };
-                rest = next;
-            }
-            _ => break,
-        }
+    while let Ok((next, _)) = preceded(
+        multispace0::<&str, nom::error::Error<&str>>,
+        tag_no_case("and"),
+    )
+    .parse(rest)
+    {
+        let (next, right) = comparison(next)?;
+        node = Expr::BinaryOp {
+            left: Box::new(node),
+            op: BinaryOp::And,
+            right: Box::new(right),
+        };
+        rest = next;
+    }
+
+    Ok((rest, node))
+}
+
+fn expr(input: &str) -> IResult<&str, Expr> {
+    if !input.contains(' ') {
+        return primary(input);
+    }
+
+    let (input, left) = and_expr(input)?;
+
+    let mut rest = input;
+    let mut node = left;
+
+    while let Ok((next, _)) = preceded(
+        multispace0::<&str, nom::error::Error<&str>>,
+        tag_no_case("or"),
+    )
+    .parse(rest)
+    {
+        let (next, right) = and_expr(next)?;
+        node = Expr::BinaryOp {
+            left: Box::new(node),
+            op: BinaryOp::Or,
+            right: Box::new(right),
+        };
+        rest = next;
     }
 
     Ok((rest, node))
