@@ -224,8 +224,10 @@ pub fn get_ident(ident: &str, document: &serde_json::Value) -> Option<serde_json
     }
 }
 
+#[derive(Debug)]
 pub enum ExpressionError {
     NoSuchIdent(String),
+    NoSuchFunction(String),
     TypeError,
     General,
 }
@@ -262,7 +264,13 @@ pub fn eval_expr(
                 Ok(serde_json::Value::Null)
             }
         }
-        Expr::FunctionCall { name, args } => todo!(),
+        Expr::FunctionCall { name, args } => {
+            let args: Vec<_> = args
+                .iter()
+                .map(|x| eval_expr(x, document, strict).unwrap())
+                .collect();
+            fn_call(name, &args)
+        }
         Expr::UnaryOp { op, expr } => {
             let e = eval_expr(&expr, document, strict)?;
             if let serde_json::Value::Bool(b) = e {
@@ -328,5 +336,14 @@ pub fn eval_expr(
             BinaryOp::Mul => todo!(),
             BinaryOp::Div => todo!(),
         },
+    }
+}
+
+pub fn fn_call(
+    name: &str,
+    args: &[serde_json::Value],
+) -> Result<serde_json::Value, ExpressionError> {
+    match name {
+        _ => Err(ExpressionError::NoSuchFunction(name.to_string())),
     }
 }

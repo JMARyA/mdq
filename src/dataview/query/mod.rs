@@ -265,6 +265,7 @@ impl DataviewQuery {
             filter = where_c.parse_filter();
         }
 
+        // TODO : Error handling
         index = index.filter_documents(|x| filter.eval(&x.get_full_frontmatter()).unwrap_or(false));
 
         let i = index.apply(
