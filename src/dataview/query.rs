@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
 
 use mdq::Index;
+use nom::bytes::take_till;
 use nom::character::complete::char;
+use nom::combinator::complete;
 use nom::{
     branch::alt,
     bytes::{complete::tag_no_case, tag, take_till1, take_until},
@@ -92,32 +94,34 @@ impl SelectionColumns {
 
 impl SelectionField {
     pub fn parse(input: &str) -> IResult<&str, SelectionField> {
-        map(
-            pair(
-                // Parse the main expression (anything up to " as " or comma)
-                terminated(
-                    take_until(" as "),
-                    opt(multispace0::<&str, nom::error::Error<&str>>),
+        let (rest, (expr, alias)) = pair(
+            take_till(|c| c == ','), // parse until comma
+            opt(preceded(
+                delimited(
+                    multispace0::<&str, nom::error::Error<&str>>,
+                    tag_no_case("as"),
+                    multispace0::<&str, nom::error::Error<&str>>,
                 ),
-                // Optional alias
-                opt(preceded(
-                    (multispace0, tag_no_case("as"), multispace0),
-                    alt((
-                        delimited(char('"'), nom::bytes::is_not("\""), char('"')), // quoted alias
-                        take_till1(|c: char| c == ',' || c.is_whitespace()),       // bare alias
-                    )),
+                alt((
+                    delimited(char('"'), take_till1(|c| c == '"'), char('"')),
+                    take_till1(|c: char| c == ',' || c.is_whitespace()),
                 )),
-            ),
-            |(expr, alias)| SelectionField {
-                expr: expr.trim().to_string(),
-                name: alias.map(|s| s.trim().to_string()),
-            },
+            )),
         )
-        .parse(input)
+        .map(|(expr, alias)| (expr.trim().to_string(), alias.map(|s| s.trim().to_string())))
+        .parse(input)?;
+
+        Ok((rest, SelectionField { expr, name: alias }))
     }
 }
 
 impl Selection {
+    pub fn new(expr: &str) -> Self {
+        Self {
+            expr: expr.to_string(),
+        }
+    }
+
     pub fn parse_expr(&self) -> Option<SelectionColumns> {
         SelectionColumns::parse(&self.expr).ok().map(|x| x.1)
     }
@@ -176,20 +180,45 @@ pub struct WhereClause {
 }
 
 impl WhereClause {
-    pub fn parse(input: &str) -> IResult<&str, WhereClause> {
-        // WHERE <expression...>
-        let (rest, expr) = preceded(
-            (multispace0, tag_no_case("where"), multispace1),
-            take_till1(|c| c == '\n'),
-        )
-        .parse(input)?;
+    pub fn new(expr: &str) -> Self {
+        Self {
+            expr: expr.to_string(),
+        }
+    }
 
-        Ok((
-            rest,
-            WhereClause {
-                expr: expr.trim().to_string(),
-            },
-        ))
+    pub fn parse(input: &str) -> IResult<&str, WhereClause> {
+        // First, consume the leading "WHERE" keyword
+        let (input, _) =
+            preceded(nom::character::complete::multispace0, tag_no_case("where")).parse(input)?;
+
+        let (input, _) = multispace1(input)?;
+
+        // Now input starts with the expression
+        let stop_keywords = ["sort", "limit", "from"];
+
+        let mut end_index = input.len();
+        let lower = input.to_ascii_lowercase();
+
+        for kw in &stop_keywords {
+            if let Some(idx) = lower.find(kw) {
+                // must be a standalone word boundary
+                if idx == 0 || lower.as_bytes()[idx - 1].is_ascii_whitespace() {
+                    end_index = end_index.min(idx);
+                }
+            }
+        }
+
+        let (expr_str, rest) = input.split_at(end_index);
+        let expr = expr_str.trim().to_string();
+
+        if expr.is_empty() {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::TakeTill1,
+            )));
+        }
+
+        Ok((rest, WhereClause { expr }))
     }
 }
 
@@ -221,6 +250,7 @@ impl DataviewQuery {
         match self.kind {
             QueryKind::List => DataviewQueryResult::List(d.into_iter().flatten().collect()),
             QueryKind::Table => DataviewQueryResult::Table(d, headers),
+            QueryKind::Task => DataviewQueryResult::Task,
         }
     }
 
@@ -251,6 +281,9 @@ impl DataviewQuery {
 pub enum DataviewQueryResult {
     List(Vec<String>),
     Table(Vec<Vec<String>>, Vec<String>),
+
+    // TODO : impl tasks
+    Task,
 }
 
 impl DataviewQueryResult {
@@ -279,6 +312,7 @@ impl DataviewQueryResult {
                     ret.push_str(&format!("| {} |\n", row_line.join(" | ")));
                 }
             }
+            Self::Task => unimplemented!(),
         }
 
         ret
@@ -289,6 +323,7 @@ impl DataviewQueryResult {
 pub enum QueryKind {
     List,
     Table,
+    Task,
 }
 
 impl QueryKind {
@@ -296,6 +331,7 @@ impl QueryKind {
         alt((
             map(tag_no_case("list"), |_| QueryKind::List),
             map(tag_no_case("table"), |_| QueryKind::Table),
+            map(tag_no_case("task"), |_| QueryKind::Task),
         ))
         .parse(input)
     }
@@ -311,7 +347,7 @@ impl FromSource {
     /// Parse the `from` clause: from "folder" | from #tag
     fn parse(input: &str) -> IResult<&str, FromSource> {
         preceded(
-            delimited(multispace0, tag_no_case("from"), multispace0),
+            delimited(multispace0, tag_no_case("from"), multispace1),
             alt((Self::from_folder, Self::from_tag)),
         )
         .parse(input)
@@ -327,7 +363,7 @@ impl FromSource {
     /// Parse: from #tag
     fn from_tag(input: &str) -> IResult<&str, FromSource> {
         map(
-            preceded(tag("#"), take_till1(|c: char| c.is_whitespace())),
+            preceded(tag("#"), complete(take_till1(|c: char| c.is_whitespace()))),
             |s: &str| FromSource::Tag(s.to_string()),
         )
         .parse(input)
@@ -356,7 +392,7 @@ impl SortClause {
                         tag_no_case("sort"),
                         multispace1::<&str, nom::error::Error<&str>>,
                     ),
-                    take_till1(|c| c == ' '),
+                    complete(take_till1(|c| c == ' ')),
                 ),
                 opt(preceded(
                     multispace1,
@@ -417,6 +453,63 @@ mod tests {
     );
 
     test_query_parse!(
+        task_query,
+        r#"TASK"#,
+        DataviewQuery {
+            kind: QueryKind::Task,
+            selection: Selection::default(),
+            from_clause: FromSource::Folder("/".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: None,
+        }
+    );
+
+    test_query_parse!(
+        table_recipes,
+        r#"TABLE recipe-type AS "type", portions, length FROM #recipes"#,
+        DataviewQuery {
+            kind: QueryKind::Table,
+            selection: Selection {
+                expr: r#"recipe-type AS "type", portions, length"#.to_string()
+            },
+            from_clause: FromSource::Tag("recipes".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: None,
+        }
+    );
+
+    test_query_parse!(
+        list_open_assignments,
+        r#"LIST FROM #assignments WHERE status = "open""#,
+        DataviewQuery {
+            kind: QueryKind::List,
+            selection: Selection::default(),
+            from_clause: FromSource::Tag("assignments".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: Some(WhereClause::new("status = \"open\"")),
+        }
+    );
+
+    test_query_parse!(
+        table_appointments,
+        r#"TABLE file.ctime, appointment.type, appointment.time, follow-ups FROM "30 Protocols/32 Management" WHERE follow-ups SORT appointment.time"#,
+        DataviewQuery {
+            kind: QueryKind::Table,
+            selection: Selection::new("file.ctime, appointment.type, appointment.time, follow-ups"),
+            from_clause: FromSource::Folder("30 Protocols/32 Management".to_string()),
+            sort_clause: Some(SortClause {
+                expr: "appointment.time".to_string(),
+                dir: SortDirection::Asc,
+            }),
+            limit: None,
+            where_clause: Some(WhereClause::new("follow-ups")),
+        }
+    );
+
+    test_query_parse!(
         list_sort,
         r#"list sort file.ctime desc"#,
         DataviewQuery {
@@ -429,6 +522,135 @@ mod tests {
             }),
             limit: None,
             where_clause: None
+        }
+    );
+
+    // LIST with file.mtime filter
+    test_query_parse!(
+        list_recent,
+        r#"LIST WHERE file.mtime >= date(today) - dur(1 day)"#,
+        DataviewQuery {
+            kind: QueryKind::List,
+            selection: Selection::default(),
+            from_clause: FromSource::Folder("/".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: Some(WhereClause::new("file.mtime >= date(today) - dur(1 day)")),
+        }
+    );
+
+    // LIST projects not completed and older than 1 month
+    test_query_parse!(
+        list_old_projects,
+        r#"LIST FROM #projects WHERE !completed AND file.ctime <= date(today) - dur(1 month)"#,
+        DataviewQuery {
+            kind: QueryKind::List,
+            selection: Selection::default(),
+            from_clause: FromSource::Tag("projects".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: Some(WhereClause::new(
+                "!completed AND file.ctime <= date(today) - dur(1 month)"
+            )),
+        }
+    );
+
+    // LIST games with price filter
+    test_query_parse!(
+        list_expensive_games,
+        r#"LIST FROM "Games" WHERE price > 10"#,
+        DataviewQuery {
+            kind: QueryKind::List,
+            selection: Selection::default(),
+            from_clause: FromSource::Folder("Games".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: Some(WhereClause::new("price > 10")),
+        }
+    );
+
+    // TASK due today or earlier
+    test_query_parse!(
+        task_due,
+        r#"TASK WHERE due <= date(today)"#,
+        DataviewQuery {
+            kind: QueryKind::Task,
+            selection: Selection::default(),
+            from_clause: FromSource::Folder("/".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: Some(WhereClause::new("due <= date(today)")),
+        }
+    );
+
+    // LIST homework not done
+    test_query_parse!(
+        list_homework_pending,
+        r#"LIST FROM #homework WHERE status != "done""#,
+        DataviewQuery {
+            kind: QueryKind::List,
+            selection: Selection::default(),
+            from_clause: FromSource::Tag("homework".to_string()),
+            sort_clause: None,
+            limit: None,
+            where_clause: Some(WhereClause::new("status != \"done\"")),
+        }
+    );
+
+    // LIST by file.day sorted descending
+    test_query_parse!(
+        list_by_day,
+        r#"LIST file.day
+WHERE file.day
+SORT file.day DESC"#,
+        DataviewQuery {
+            kind: QueryKind::List,
+            selection: Selection::new("file.day"),
+            from_clause: FromSource::Folder("/".to_string()),
+            sort_clause: Some(SortClause {
+                expr: "file.day".to_string(),
+                dir: SortDirection::Desc,
+            }),
+            limit: None,
+            where_clause: Some(WhereClause::new("file.day")),
+        }
+    );
+
+    // TABLE books last modified
+    test_query_parse!(
+        table_books,
+        r#"TABLE file.mtime AS "Last Modified"
+FROM "books"
+SORT file.mtime DESC"#,
+        DataviewQuery {
+            kind: QueryKind::Table,
+            selection: Selection::new(r#"file.mtime AS "Last Modified""#),
+            from_clause: FromSource::Folder("books".to_string()),
+            sort_clause: Some(SortClause {
+                expr: "file.mtime".to_string(),
+                dir: SortDirection::Desc,
+            }),
+            limit: None,
+            where_clause: None,
+        }
+    );
+
+    // TABLE games with multiple columns sorted by rating
+    test_query_parse!(
+        table_games,
+        r#"TABLE time-played AS "Time Played", length AS "Length", rating AS "Rating" FROM "games" SORT rating DESC"#,
+        DataviewQuery {
+            kind: QueryKind::Table,
+            selection: Selection::new(
+                r#"time-played AS "Time Played", length AS "Length", rating AS "Rating""#
+            ),
+            from_clause: FromSource::Folder("games".to_string()),
+            sort_clause: Some(SortClause {
+                expr: "rating".to_string(),
+                dir: SortDirection::Desc,
+            }),
+            limit: None,
+            where_clause: None,
         }
     );
 }
