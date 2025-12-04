@@ -65,6 +65,13 @@ pub enum Commands {
         #[arg(long)]
         root: Option<String>,
     },
+    DataView {
+        /// Root directory
+        root: String,
+
+        /// Query
+        query: String,
+    },
 }
 
 impl Args {

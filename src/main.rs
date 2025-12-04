@@ -12,12 +12,29 @@ pub fn quit_err(e: impl std::error::Error, msg: &str) -> ! {
 }
 
 fn main() {
+    #[cfg(debug_assertions)]
     env_logger::init();
+
     let args = args::Args::parse();
 
     if let Some(args::Commands::Preprocess { file, root }) = args.command {
         let processed = dataview::preprocess(file, root);
         println!("{processed}");
+        return;
+    }
+
+    if let Some(args::Commands::DataView { root, query }) = args.command {
+        let (_, parsed) = dataview::query::DataviewQuery::parse(&query).unwrap();
+        log::info!("Parsed this query: {parsed:?}");
+        let index = Index::new(&root, true);
+        let res = parsed.run_on(&index);
+        match res {
+            dataview::query::DataviewQueryResult::List(items) => todo!(),
+            dataview::query::DataviewQueryResult::Table(data, headers) => {
+                print_result(data, &headers);
+            }
+            dataview::query::DataviewQueryResult::Task => todo!(),
+        }
         return;
     }
 
