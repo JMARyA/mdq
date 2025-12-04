@@ -257,16 +257,6 @@ mod wherefilter {
 
     use crate::dataview::query::where_filter::*;
 
-    test_wherefilter_parse!(
-        basic,
-        "1 = 1",
-        WhereFilter::new(Expr::BinaryOp {
-            left: Box::new(Expr::Literal(json!(1))),
-            op: BinaryOp::Eq,
-            right: Box::new(Expr::Literal(json!(1)))
-        })
-    );
-
     // --- Literal tests ---
     test_wherefilter_parse!(
         literal_number,
@@ -329,6 +319,16 @@ mod wherefilter {
             left: Box::new(Expr::Literal(json!(1))),
             op: BinaryOp::Eq,
             right: Box::new(Expr::Literal(json!(1))),
+        })
+    );
+
+    test_wherefilter_parse!(
+        basic_ident,
+        "data = 1",
+        WhereFilter::new(Expr::BinaryOp {
+            left: Box::new(Expr::Identifier("data".to_string())),
+            op: BinaryOp::Eq,
+            right: Box::new(Expr::Literal(json!(1)))
         })
     );
 

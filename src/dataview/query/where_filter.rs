@@ -8,7 +8,7 @@ use nom::{
     IResult, Parser,
 };
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
@@ -43,11 +43,13 @@ fn literal(input: &str) -> IResult<&str, Expr> {
         alt((
             // Quoted string: "hello"
             delimited(char('"'), take_while1(|c| c != '"'), char('"')),
-            // Unquoted value: number, true/false/null
-            take_while1(|c: char| !c.is_whitespace() && c != ')' && c != ','),
+            // Numbers: integer or float
+            take_while1(|c: char| c.is_digit(10) || c == '.' || c == '-'),
+            // Boolean or null
+            alt((tag("true"), tag("false"), tag("null"))),
         )),
         |txt: &str| {
-            // Try number first
+            // Try parsing number
             if let Ok(n) = txt.parse::<i64>() {
                 Expr::Literal(Value::from(n))
             } else if let Ok(f) = txt.parse::<f64>() {
@@ -59,7 +61,6 @@ fn literal(input: &str) -> IResult<&str, Expr> {
             } else if txt == "null" {
                 Expr::Literal(Value::Null)
             } else {
-                // fallback to string
                 Expr::Literal(Value::String(txt.to_string()))
             }
         },
@@ -202,6 +203,57 @@ impl WhereFilter {
     }
 
     pub fn eval(&self, document: &serde_json::Value) -> Result<bool, ()> {
-        todo!()
+        let val = eval_expr(&self.expression, document);
+        if let Ok(Value::Bool(b)) = val {
+            return Ok(b);
+        }
+
+        Err(())
+    }
+}
+
+pub fn get_ident(ident: &str, document: &serde_json::Value) -> Option<serde_json::Value> {
+    Some(document.as_object()?.get(ident)?.clone())
+}
+
+pub enum ExpressionError {
+    NoSuchIdent(String),
+    General,
+}
+
+pub fn eval_expr(
+    expr: &Expr,
+    document: &serde_json::Value,
+) -> Result<serde_json::Value, ExpressionError> {
+    println!("matching {:?}", expr);
+    match expr {
+        Expr::Literal(value) => Ok(value.clone()),
+        Expr::Identifier(ident) => {
+            let val = get_ident(ident, document); // strict: .ok_or(ExpressionError::NoSuchIdent(ident.clone()))
+            if let Some(val) = val {
+                Ok(val)
+            } else {
+                Ok(serde_json::Value::Null)
+            }
+        }
+        Expr::FunctionCall { name, args } => todo!(),
+        Expr::UnaryOp { op, expr } => todo!(),
+        Expr::BinaryOp { left, op, right } => match op {
+            BinaryOp::And => todo!(),
+            BinaryOp::Or => todo!(),
+            BinaryOp::Eq => {
+                let (a, b) = (eval_expr(&left, document)?, eval_expr(&right, document)?);
+                Ok(json!(a == b))
+            }
+            BinaryOp::Neq => todo!(),
+            BinaryOp::Lt => todo!(),
+            BinaryOp::Lte => todo!(),
+            BinaryOp::Gt => todo!(),
+            BinaryOp::Gte => todo!(),
+            BinaryOp::Add => todo!(),
+            BinaryOp::Sub => todo!(),
+            BinaryOp::Mul => todo!(),
+            BinaryOp::Div => todo!(),
+        },
     }
 }

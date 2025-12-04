@@ -247,7 +247,7 @@ impl DataviewQuery {
 
         let sort = self.sort_clause.clone().map(|x| x.expr);
 
-        let (_, filter) = WhereFilter::parse("true").unwrap();
+        let (_, mut filter) = WhereFilter::parse("true").unwrap();
 
         match &self.from_clause {
             FromSource::Folder(folder) => {
@@ -262,10 +262,10 @@ impl DataviewQuery {
         }
 
         if let Some(where_c) = &self.where_clause {
-            let filter = where_c.parse_filter();
+            filter = where_c.parse_filter();
         }
 
-        index = index.filter_documents(|x| filter.eval(&x.get_full_frontmatter()).unwrap());
+        index = index.filter_documents(|x| filter.eval(&x.get_full_frontmatter()).unwrap_or(false));
 
         let i = index.apply(
             self.limit.clone().map(|x| x.limit).unwrap_or(0) as usize,
