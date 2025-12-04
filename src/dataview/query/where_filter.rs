@@ -203,7 +203,7 @@ impl WhereFilter {
     }
 
     pub fn eval(&self, document: &serde_json::Value) -> Result<bool, ()> {
-        let val = eval_expr(&self.expression, document);
+        let val = eval_expr(&self.expression, document, false);
         if let Ok(Value::Bool(b)) = val {
             return Ok(b);
         }
@@ -213,23 +213,49 @@ impl WhereFilter {
 }
 
 pub fn get_ident(ident: &str, document: &serde_json::Value) -> Option<serde_json::Value> {
-    Some(document.as_object()?.get(ident)?.clone())
+    if ident.contains('.') {
+        let mut parts = ident.splitn(2, '.');
+        let first = parts.next()?;
+        let rest = parts.next()?;
+        let next_value = document.get(first)?;
+        get_ident(rest, next_value)
+    } else {
+        document.get(ident).cloned()
+    }
 }
 
 pub enum ExpressionError {
     NoSuchIdent(String),
+    TypeError,
     General,
+}
+
+pub fn eval_two(
+    left: &Expr,
+    right: &Expr,
+    document: &serde_json::Value,
+    strict: bool,
+) -> Result<(Value, Value), ExpressionError> {
+    Ok((
+        eval_expr(&left, document, strict)?,
+        eval_expr(&right, document, strict)?,
+    ))
 }
 
 pub fn eval_expr(
     expr: &Expr,
     document: &serde_json::Value,
+    strict: bool,
 ) -> Result<serde_json::Value, ExpressionError> {
-    println!("matching {:?}", expr);
+    println!("Matching {:?}", expr);
     match expr {
         Expr::Literal(value) => Ok(value.clone()),
         Expr::Identifier(ident) => {
-            let val = get_ident(ident, document); // strict: .ok_or(ExpressionError::NoSuchIdent(ident.clone()))
+            let val = get_ident(ident, document);
+            if strict {
+                return val.ok_or(ExpressionError::NoSuchIdent(ident.clone()));
+            }
+
             if let Some(val) = val {
                 Ok(val)
             } else {
@@ -237,19 +263,66 @@ pub fn eval_expr(
             }
         }
         Expr::FunctionCall { name, args } => todo!(),
-        Expr::UnaryOp { op, expr } => todo!(),
+        Expr::UnaryOp { op, expr } => {
+            let e = eval_expr(&expr, document, strict)?;
+            if let serde_json::Value::Bool(b) = e {
+                Ok(json!(!b))
+            } else {
+                Err(ExpressionError::TypeError)
+            }
+        }
         Expr::BinaryOp { left, op, right } => match op {
-            BinaryOp::And => todo!(),
-            BinaryOp::Or => todo!(),
+            // Bool
+            BinaryOp::And => {
+                let a = eval_expr(&left, document, strict)?;
+                if let serde_json::Value::Bool(a_bool) = a {
+                    if !a_bool {
+                        return Ok(json!(false));
+                    }
+
+                    let b = eval_expr(&right, document, strict)?;
+                    if let serde_json::Value::Bool(b_bool) = b {
+                        return Ok(json!(a_bool && b_bool));
+                    } else {
+                        return Err(ExpressionError::TypeError);
+                    }
+                } else {
+                    return Err(ExpressionError::TypeError);
+                }
+            }
+            BinaryOp::Or => {
+                let a = eval_expr(&left, document, strict)?;
+                if let serde_json::Value::Bool(a_bool) = a {
+                    if a_bool {
+                        return Ok(json!(true));
+                    }
+
+                    let b = eval_expr(&right, document, strict)?;
+                    if let serde_json::Value::Bool(b_bool) = b {
+                        return Ok(json!(a_bool || b_bool));
+                    } else {
+                        return Err(ExpressionError::TypeError);
+                    }
+                } else {
+                    return Err(ExpressionError::TypeError);
+                }
+            }
+
+            // Compare
             BinaryOp::Eq => {
-                let (a, b) = (eval_expr(&left, document)?, eval_expr(&right, document)?);
+                let (a, b) = eval_two(&left, &right, document, strict)?;
                 Ok(json!(a == b))
             }
-            BinaryOp::Neq => todo!(),
+            BinaryOp::Neq => {
+                let (a, b) = eval_two(&left, &right, document, strict)?;
+                Ok(json!(a != b))
+            }
             BinaryOp::Lt => todo!(),
             BinaryOp::Lte => todo!(),
             BinaryOp::Gt => todo!(),
             BinaryOp::Gte => todo!(),
+
+            // Math
             BinaryOp::Add => todo!(),
             BinaryOp::Sub => todo!(),
             BinaryOp::Mul => todo!(),
