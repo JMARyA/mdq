@@ -1,6 +1,6 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1},
+    bytes::complete::{tag, tag_no_case, take_while1},
     character::complete::{char, multispace0},
     combinator::map,
     multi::separated_list0,
@@ -107,8 +107,8 @@ fn binary_op(input: &str) -> IResult<&str, BinaryOp> {
     preceded(
         multispace0,
         alt((
-            map(tag("AND"), |_| BinaryOp::And),
-            map(tag("OR"), |_| BinaryOp::Or),
+            map(tag_no_case("and"), |_| BinaryOp::And),
+            map(tag_no_case("or"), |_| BinaryOp::Or),
             map(tag("<="), |_| BinaryOp::Lte),
             map(tag(">="), |_| BinaryOp::Gte),
             map(tag("!="), |_| BinaryOp::Neq),
@@ -249,7 +249,7 @@ pub fn eval_expr(
     document: &serde_json::Value,
     strict: bool,
 ) -> Result<serde_json::Value, ExpressionError> {
-    println!("Matching {:?}", expr);
+    // println!("Matching {:?}", expr);
     match expr {
         Expr::Literal(value) => Ok(value.clone()),
         Expr::Identifier(ident) => {

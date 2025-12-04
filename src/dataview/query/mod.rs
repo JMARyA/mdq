@@ -4,9 +4,12 @@ mod tests;
 pub mod where_filter;
 
 use mdq::Index;
+use nom::bytes::complete::take_while1;
 use nom::bytes::take_till;
 use nom::character::complete::char;
-use nom::combinator::complete;
+use nom::combinator::{complete, eof, not, peek, recognize, verify};
+use nom::multi::many1;
+use nom::sequence::terminated;
 use nom::{
     branch::alt,
     bytes::{complete::tag_no_case, tag, take_till1},
@@ -86,11 +89,7 @@ impl SelectionColumns {
     pub fn parse(input: &str) -> IResult<&str, SelectionColumns> {
         map(
             separated_list1(
-                delimited(
-                    multispace0,
-                    nom::character::complete::char(','),
-                    multispace0,
-                ),
+                delimited(multispace0, char(','), multispace0),
                 SelectionField::parse,
             ),
             |cols| SelectionColumns { cols: cols.into() },
@@ -101,24 +100,39 @@ impl SelectionColumns {
 
 impl SelectionField {
     pub fn parse(input: &str) -> IResult<&str, SelectionField> {
-        let (rest, (expr, alias)) = pair(
-            take_till(|c| c == ','), // parse until comma
-            opt(preceded(
-                delimited(
-                    multispace0::<&str, nom::error::Error<&str>>,
-                    tag_no_case("as"),
-                    multispace0::<&str, nom::error::Error<&str>>,
-                ),
-                alt((
-                    delimited(char('"'), take_till1(|c| c == '"'), char('"')),
-                    take_till1(|c: char| c == ',' || c.is_whitespace()),
-                )),
-            )),
-        )
-        .map(|(expr, alias)| (expr.trim().to_string(), alias.map(|s| s.trim().to_string())))
-        .parse(input)?;
+        let input = input.trim();
 
-        Ok((rest, SelectionField { expr, name: alias }))
+        // Check if there's " as " or " AS " in the input
+        if let Some(as_pos) = input.to_lowercase().find(" as ") {
+            let field_expr = input[..as_pos].trim();
+            let after_as = input[as_pos + 4..].trim();
+
+            // Parse the alias (either quoted or unquoted)
+            let alias = if after_as.starts_with('"') && after_as.ends_with('"') {
+                // Extract quoted alias
+                &after_as[1..after_as.len() - 1]
+            } else {
+                // Unquoted alias
+                after_as
+            };
+
+            Ok((
+                "",
+                SelectionField {
+                    expr: field_expr.to_string(),
+                    name: Some(alias.to_string()),
+                },
+            ))
+        } else {
+            // No alias
+            Ok((
+                "",
+                SelectionField {
+                    expr: input.to_string(),
+                    name: None,
+                },
+            ))
+        }
     }
 }
 
@@ -127,6 +141,10 @@ impl Selection {
         Self {
             expr: expr.to_string(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.expr.is_empty()
     }
 
     pub fn parse_expr(&self) -> Option<SelectionColumns> {
@@ -236,11 +254,17 @@ impl WhereClause {
 impl DataviewQuery {
     /// Run a dataview query on a markdown index
     pub fn run_on(&self, mut index: Index) -> DataviewQueryResult {
-        let selection = self
-            .selection
-            .parse_expr()
-            .unwrap_or_default()
-            .ensure_first_col();
+        let selection = if self.selection.is_empty() {
+            SelectionColumns::default().ensure_first_col()
+        } else {
+            self.selection
+                .parse_expr()
+                .expect("could not parse columns")
+                .ensure_first_col()
+        };
+
+        println!("found {selection:?}");
+
         let cols = selection.columns();
         let headers = selection.headers();
         println!("Parsed columns: {cols:?}");
