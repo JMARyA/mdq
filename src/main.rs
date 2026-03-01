@@ -1,5 +1,6 @@
 use std::{collections::HashMap, io::IsTerminal};
 
+use jsaw_core::record::value_cmp;
 use mdq::Index;
 
 mod args;
@@ -54,10 +55,11 @@ fn main() {
         if std::io::stdout().is_terminal() {
             let mut grouped_keys = grouped.iter().map(|(key, _)| key).collect::<Vec<_>>();
             grouped_keys.sort_by(|a_str, b_str| {
-                let a: serde_json::Value = serde_json::from_str(a_str).unwrap();
-                let b: serde_json::Value = serde_json::from_str(b_str).unwrap();
-
-                jsonfilter::order(&a, &b)
+                let a: serde_json::Value =
+                    serde_json::from_str(a_str).unwrap_or(serde_json::Value::Null);
+                let b: serde_json::Value =
+                    serde_json::from_str(b_str).unwrap_or(serde_json::Value::Null);
+                value_cmp(&a, &b)
             });
             for group in grouped_keys {
                 println!("# {group}");
