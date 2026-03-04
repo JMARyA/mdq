@@ -28,6 +28,35 @@ pub fn get_inline_tags(markdown: &str) -> Vec<String> {
         .collect()
 }
 
+// ── Task extraction ───────────────────────────────────────────────────────────
+
+/// Extracts GFM task list items (`- [ ] …` / `- [x] …`) from a Markdown body.
+///
+/// Returns a JSON array of objects with `"text"` and `"done"` fields.
+///
+/// ```
+/// use mdq::get_tasks;
+/// let md = "- [x] Buy milk\n- [ ] Write tests\n";
+/// let tasks = get_tasks(md);
+/// assert_eq!(tasks.len(), 2);
+/// assert_eq!(tasks[0]["done"], true);
+/// assert_eq!(tasks[1]["done"], false);
+/// ```
+#[must_use]
+pub fn get_tasks(markdown: &str) -> Vec<serde_json::Value> {
+    let task_regex = regex::Regex::new(r"(?m)^[ \t]*[-*+] \[([ xX])\] (.+)$").unwrap();
+    task_regex
+        .captures_iter(markdown)
+        .map(|c| {
+            let done = c.get(1).map_or(false, |m| !m.as_str().trim().is_empty());
+            let text = c
+                .get(2)
+                .map_or_else(String::new, |m| m.as_str().trim().to_string());
+            serde_json::json!({"text": text, "done": done})
+        })
+        .collect()
+}
+
 // ── Data structures ───────────────────────────────────────────────────────────
 
 /// A single markdown document: its path and parsed frontmatter as JSON.
@@ -53,7 +82,7 @@ impl Index {
     /// Frontmatter is parsed by `jsaw-core`'s `Provider`. When `inline_tags`
     /// is true, `#hashtags` from the document body are merged into the
     /// frontmatter `tags` field (deduplicating with any existing tags).
-    pub fn new(dir: &str, inline_tags: bool) -> Self {
+    pub fn new(dir: &str, inline_tags: bool, extract_tasks: bool) -> Self {
         let mut i = Self { documents: vec![] };
 
         for e in walkdir::WalkDir::new(dir)
@@ -69,39 +98,52 @@ impl Index {
 
             let path = e.path().to_str().unwrap().to_owned();
 
-            let frontmatter = if inline_tags {
-                // Need the raw content for tag extraction.
+            let frontmatter = if inline_tags || extract_tasks {
                 let content = match std::fs::read_to_string(&path) {
                     Ok(c) => c,
                     Err(_) => continue,
                 };
 
-                // jsaw-core parses the frontmatter — no duplication needed.
                 let mut fm = Provider::parse_content(&content, Format::MarkdownFrontmatter)
                     .unwrap_or_else(|| serde_json::json!({}));
 
-                // Merge inline #tags with existing frontmatter tags, preserving order.
-                let mut tags: Vec<String> = fm
-                    .get("tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                tags.extend(get_inline_tags(&content));
+                if extract_tasks {
+                    let tasks = get_tasks(&content);
+                    let tasks_done = tasks
+                        .iter()
+                        .filter(|t| t["done"].as_bool().unwrap_or(false))
+                        .count();
+                    let tasks_open = tasks.len() - tasks_done;
+                    let obj = fm.as_object_mut().unwrap();
+                    obj.insert("tasks".into(), serde_json::Value::Array(tasks));
+                    obj.insert("tasks_done".into(), serde_json::json!(tasks_done));
+                    obj.insert("tasks_open".into(), serde_json::json!(tasks_open));
+                }
 
-                let mut seen = HashSet::new();
-                let unique: Vec<serde_json::Value> = tags
-                    .into_iter()
-                    .filter(|t| seen.insert(t.clone()))
-                    .map(serde_json::Value::String)
-                    .collect();
+                if inline_tags {
+                    let mut tags: Vec<String> = fm
+                        .get("tags")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    tags.extend(get_inline_tags(&content));
 
-                fm.as_object_mut()
-                    .unwrap()
-                    .insert("tags".into(), serde_json::Value::Array(unique));
+                    let mut seen = HashSet::new();
+                    let unique: Vec<serde_json::Value> = tags
+                        .into_iter()
+                        .filter(|t| seen.insert(t.clone()))
+                        .map(serde_json::Value::String)
+                        .collect();
+
+                    fm.as_object_mut()
+                        .unwrap()
+                        .insert("tags".into(), serde_json::Value::Array(unique));
+                }
+
                 fm
             } else {
                 Provider::File(PathBuf::from(&path))

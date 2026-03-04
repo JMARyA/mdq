@@ -21,7 +21,7 @@ fn main() {
         args.root_dir
     };
 
-    let mut i = Index::new(&root_dir, args.use_inline_tags);
+    let mut i = Index::new(&root_dir, args.use_inline_tags, args.extract_tasks);
     if !args.filters.is_null() {
         i = i.filter_documents(&args.filters);
     }
