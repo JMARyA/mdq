@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::IsTerminal};
 
-use jsaw_core::record::value_cmp;
+use jsaw_core::{record::value_cmp, schema::infer_schema};
 use mdq::Index;
 
 mod args;
@@ -28,25 +28,45 @@ fn main() {
 
     i = i.apply(args.limit, args.offset, args.sort_by, args.reversed);
 
+    // Derive columns from schema inference when --all-columns is set.
+    let (columns, headers) = if args.all_columns {
+        let frontmatter: Vec<serde_json::Value> =
+            i.documents.iter().map(|d| d.frontmatter.clone()).collect();
+        let schema = infer_schema(&frontmatter);
+        // Pin file.title first, then top-level frontmatter fields only.
+        // Nested fields (dot-notation) are excluded — use -c for those.
+        let mut cols = vec!["file.title".to_string()];
+        let mut hdrs = vec!["Title".to_string()];
+        for f in &schema {
+            if !f.field.contains('.') {
+                hdrs.push(f.field.clone());
+                cols.push(f.field.clone());
+            }
+        }
+        (cols, hdrs)
+    } else {
+        (args.columns, args.headers)
+    };
+
     if args.group_by.is_some() {
         let grouped = i.group_by(&args.group_by.clone().unwrap());
         let grouped: HashMap<_, _> = grouped
             .into_iter()
-            .map(|(key, val)| (key, val.create_table_data(&args.columns)))
+            .map(|(key, val)| (key, val.create_table_data(&columns)))
             .collect();
 
         if args.output_json {
             let mut data = serde_json::json!(
                 {
-                    "columns": args.columns,
+                    "columns": columns,
                     "groupby": args.group_by.unwrap(),
                     "results": grouped
                 }
             );
-            if args.columns != args.headers {
+            if columns != headers {
                 data.as_object_mut()
                     .unwrap()
-                    .insert("headers".into(), args.headers.into());
+                    .insert("headers".into(), headers.into());
             }
             println!("{}", serde_json::to_string(&data).unwrap());
             return;
@@ -63,7 +83,7 @@ fn main() {
             });
             for group in grouped_keys {
                 println!("# {group}");
-                print_result(grouped.get(group).unwrap().clone(), &args.headers);
+                print_result(grouped.get(group).unwrap().clone(), &headers);
             }
         } else {
             let mut first = true;
@@ -71,11 +91,7 @@ fn main() {
                 if first {
                     print_csv(
                         val,
-                        if args.no_header {
-                            None
-                        } else {
-                            Some(&args.headers)
-                        },
+                        if args.no_header { None } else { Some(&headers) },
                     );
                     first = false;
                     continue;
@@ -86,33 +102,29 @@ fn main() {
         return;
     }
 
-    let data = i.create_table_data(&args.columns);
+    let data = i.create_table_data(&columns);
 
     if args.output_json {
         let mut data = serde_json::json!(
             {
-                "columns": args.columns,
+                "columns": columns,
                 "results": data
             }
         );
-        if args.columns != args.headers {
+        if columns != headers {
             data.as_object_mut()
                 .unwrap()
-                .insert("headers".into(), args.headers.into());
+                .insert("headers".into(), headers.into());
         }
         println!("{}", serde_json::to_string(&data).unwrap());
         return;
     }
     if std::io::stdout().is_terminal() {
-        print_result(data, &args.headers);
+        print_result(data, &headers);
     } else {
         print_csv(
             data,
-            if args.no_header {
-                None
-            } else {
-                Some(&args.headers)
-            },
+            if args.no_header { None } else { Some(&headers) },
         );
     }
 }

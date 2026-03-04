@@ -325,6 +325,8 @@ checksum = "6717a8d2a5a929a1a2eb43a12812498ed141a0bcfb7e8f7844fbdbe4303bba9f"
 dependencies = [
  "equivalent",
  "hashbrown",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -417,10 +419,11 @@ dependencies = [
 [[package]]
 name = "jsaw-core"
 version = "0.2.0"
-source = "git+https://git.hydrar.de/jmarya/jsaw#b9b39f5bdf5fcda1d94958cca91c2d46b084f9c4"
+source = "git+https://git.hydrar.de/jmarya/jsaw#aa19a598a5901ec85b10b1667f10578444c9d958"
 dependencies = [
  "chrono",
  "csv",
+ "indexmap",
  "jaq-core",
  "jaq-json",
  "jaq-std",
@@ -435,7 +438,7 @@ dependencies = [
 [[package]]
 name = "jsonfilter"
 version = "0.2.1"
-source = "git+https://git.hydrar.de/jmarya/jsonfilter#a2781f35ea1d424e10edebeaac98571d176592a1"
+source = "git+https://git.hydrar.de/jmarya/jsonfilter#feb0030059217f2345c71c86455f91ea9413d76f"
 dependencies = [
  "regex",
  "serde",

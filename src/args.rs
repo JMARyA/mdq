@@ -10,6 +10,7 @@ pub struct Args {
     pub offset: usize,
     pub use_inline_tags: bool,
     pub extract_tasks: bool,
+    pub all_columns: bool,
     pub sort_by: Option<String>,
     pub group_by: Option<String>,
     pub reversed: bool,
@@ -41,6 +42,7 @@ pub fn get_args() -> Args {
 
     let use_inline_tags: bool = args.get_flag("inline-tags");
     let extract_tasks: bool = args.get_flag("tasks");
+    let all_columns: bool = args.get_flag("all-columns");
 
     let sort_by = args
         .get_one::<String>("sortby")
@@ -105,6 +107,7 @@ pub fn get_args() -> Args {
         offset,
         use_inline_tags,
         extract_tasks,
+        all_columns,
         sort_by,
         group_by,
         reversed,
@@ -143,5 +146,6 @@ fn get_args_match() -> ArgMatches {
         .arg(arg!(--noheader "Dont print header in CSV mode. Useful for scripting").required(false))
         .arg(clap::Arg::new("inline-tags").short('t').long("inline-tags").help("Include inline #tags in tags frontmatter").required(false).num_args(0))
         .arg(clap::Arg::new("tasks").long("tasks").help("Extract GFM task list items into tasks, tasks_done and tasks_open fields").required(false).num_args(0))
+        .arg(clap::Arg::new("all-columns").long("all-columns").help("Auto-discover all frontmatter fields via schema inference and use them as columns").required(false).num_args(0))
         .get_matches()
 }
