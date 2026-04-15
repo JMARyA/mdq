@@ -12,6 +12,9 @@ pub fn quit_err(e: impl std::error::Error, msg: &str) -> ! {
 
 fn main() {
     env_logger::init();
+    eprintln!(
+        "warning: mdq is deprecated. Use `jsaw db` instead. See https://git.hydrar.de/jmarya/jsaw"
+    );
     let args = args::get_args();
 
     let root_dir = if args.root_dir == "." {

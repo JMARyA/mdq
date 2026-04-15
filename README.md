@@ -1,5 +1,22 @@
 # Markdown Query
 
+> **Deprecated.** `mdq` is no longer maintained. All functionality has been absorbed into [jsaw](https://git.hydrar.de/jmarya/jsaw).
+>
+> **Migration:**
+> ```sh
+> # mdq -c "file.title:Title" -f '{"status": "active"}' -s date ./docs
+> jsaw db ./docs -c "file.title:Title" -f '.status == "active"' -s date
+>
+> # mdq --tasks -f '{"tasks_open": {"$gt": 0}}' ./docs
+> jsaw db ./docs -f '.md.tasks_open > 0' -c "file.title" -c "md.tasks_open"
+>
+> # mdq -t --inline-tags ./docs
+> jsaw db ./docs -c "file.title" -c "md.inline_tags"
+>
+> # mdq -g status ./docs
+> jsaw db ./docs -g status
+> ```
+
 MDQ is a command line tool to query markdown documents which have yaml frontmatter.
 
 ## Usage
